@@ -42,5 +42,25 @@
       "calories": { "name": "Calories" },
       "work": { "name": "Work" }
     }
+  },
+  "services": {
+    "render_workout": {
+      "name": "Render workout track",
+      "description": "Fetch a Wahoo workout by id and render its FIT file to a GeoJSON track under <config>/www/hawahooligan/<id>.geojson.",
+      "fields": {
+        "workout_id": {
+          "name": "Workout ID",
+          "description": "Numeric Wahoo workout id (visible in the Wahoo web app URL)."
+        },
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "Only required when more than one Wahoo account is configured."
+        },
+        "force": {
+          "name": "Force re-render",
+          "description": "Re-download the FIT and overwrite the existing GeoJSON even if a file for this workout id already exists."
+        }
+      }
+    }
   }
 }

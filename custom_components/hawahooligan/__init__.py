@@ -13,8 +13,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_entry_oauth2_flow
 
 from .api import WahooApi
-from .const import PLATFORMS, WWW_SUBPATH
+from .const import DOMAIN, PLATFORMS, WWW_SUBPATH
 from .coordinator import WahooCoordinator
+from .services import async_register_services, async_unregister_services
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,12 +50,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: HawahooliganConfigEntry)
     entry.runtime_data = HawahooliganData(api=api, coordinator=coordinator)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    async_register_services(hass)
+
+    # Backfill historic tracks in the background so setup never blocks on N
+    # FIT downloads. Idempotent — already-rendered workouts are skipped.
+    entry.async_create_background_task(
+        hass,
+        _backfill(coordinator),
+        name="hawahooligan_backfill",
+    )
     return True
+
+
+async def _backfill(coordinator: WahooCoordinator) -> None:
+    try:
+        rendered = await coordinator.async_backfill_recent()
+    except Exception as err:  # noqa: BLE001 — backfill never blocks setup
+        _LOGGER.warning("HAWahooligan backfill failed: %s", err)
+        return
+    if rendered:
+        _LOGGER.info("HAWahooligan backfilled %d historic track(s)", rendered)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: HawahooliganConfigEntry) -> bool:
     """Unload a config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unloaded and not hass.config_entries.async_loaded_entries(DOMAIN):
+        async_unregister_services(hass)
+    return unloaded
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: HawahooliganConfigEntry) -> None:
