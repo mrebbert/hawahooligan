@@ -1,0 +1,13 @@
+{
+  "domain": "hawahooligan",
+  "name": "HAWahooligan",
+  "codeowners": ["@mrebbert"],
+  "config_flow": true,
+  "dependencies": ["application_credentials"],
+  "documentation": "https://github.com/mrebbert/hawahooligan",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/mrebbert/hawahooligan/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
