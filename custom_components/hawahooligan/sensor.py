@@ -207,6 +207,18 @@ class WahooLastWorkoutSensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
             "fitness_app_id": data.fitness_app_id,
             "starts": data.starts,
             "geojson_url": data.geojson_url,
+            "recent": [
+                {
+                    "id": r.id,
+                    "name": r.name,
+                    "starts": r.starts,
+                    "workout_type": r.workout_type_name,
+                    "indoor": r.indoor,
+                    "manual": r.manual,
+                    "has_track": r.has_track,
+                }
+                for r in data.recent
+            ],
         }
 
 

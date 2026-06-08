@@ -45,6 +45,17 @@ BACKFILL_COUNT: Final = 20
 # re-rendering after a viewer bump.
 SERVICE_RENDER_WORKOUT: Final = "render_workout"
 
+# Size of the rolling "recent workouts" window the coordinator keeps in
+# ``WorkoutData.recent`` and exports to the picker manifest. Same value as
+# ``BACKFILL_COUNT`` by design: every workout the picker can pick has a
+# rendered GeoJSON on disk (or is marked has_track=False for indoor/manual).
+RECENT_COUNT: Final = 20
+
+# Filename of the picker manifest under ``<config>/www/hawahooligan/``. The
+# bundled Leaflet viewer (``web/map.html``) reads this to populate its
+# dropdown without contacting HA's API surface.
+MANIFEST_FILENAME: Final = "workouts.json"
+
 # Workout-type table from the Wahoo Cloud API "Data Types" section. The
 # `location` value is the source of truth for indoor/outdoor classification —
 # robuster than a handpicked ID set when Wahoo extends the table.

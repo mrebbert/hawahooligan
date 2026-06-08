@@ -2,11 +2,17 @@
 <!--
   HAWahooligan track viewer (provisioned to <config>/www/hawahooligan/map.html).
   Standalone — only depends on Leaflet from a CDN. Embed via a Lovelace
-  iframe-card pointed at /local/hawahooligan/map.html. Append ?id=<workout_id>
-  to view a specific workout; without the query parameter the page renders
-  /local/hawahooligan/latest.geojson, which the integration keeps updated.
+  iframe-card pointed at /local/hawahooligan/map.html.
 
-  HAWahooligan-Viewer-Version: 1
+  Behaviour:
+    * Loads /local/hawahooligan/workouts.json (written by the coordinator)
+      and populates a dropdown of the most recent rides.
+    * Pre-selects the workout referenced by the ?id=<workout_id> query
+      parameter, or "Latest" otherwise.
+    * Fetches /local/hawahooligan/<id>.geojson (or latest.geojson) and
+      renders it with start/end markers + fitBounds.
+
+  HAWahooligan-Viewer-Version: 2
   Bump that version line in custom_components/hawahooligan/web/map.html when
   you ship breaking changes — the integration re-provisions the file
   whenever the version stamp in <config>/www/hawahooligan/map.html differs
@@ -59,10 +65,28 @@
         background: #fee2e2;
         color: #991b1b;
       }
+      #picker {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        z-index: 1000;
+        max-width: min(60%, 320px);
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid rgba(0, 0, 0, 0.15);
+        background: rgba(255, 255, 255, 0.95);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+        font-size: 13px;
+        color: inherit;
+      }
+      #picker.hidden {
+        display: none;
+      }
     </style>
   </head>
   <body>
     <div id="status">Loading track…</div>
+    <select id="picker" class="hidden" aria-label="Pick a workout"></select>
     <div id="map"></div>
     <script
       src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
@@ -85,93 +109,194 @@
           },
         ).addTo(map);
 
-        const status = document.getElementById("status");
+        const statusEl = document.getElementById("status");
         const setStatus = (text, isError = false) => {
           if (!text) {
-            status.classList.add("hidden");
+            statusEl.classList.add("hidden");
             return;
           }
-          status.classList.remove("hidden");
-          status.classList.toggle("error", isError);
-          status.textContent = text;
+          statusEl.classList.remove("hidden");
+          statusEl.classList.toggle("error", isError);
+          statusEl.textContent = text;
         };
 
-        const params = new URLSearchParams(window.location.search);
-        const id = params.get("id");
-        const trackUrl = id
-          ? `/local/hawahooligan/${encodeURIComponent(id)}.geojson`
-          : "/local/hawahooligan/latest.geojson";
+        // ---- track layer state -------------------------------------------------
+        let trackLayer = null;
+        let markerLayer = null;
 
-        // Cache-bust so HA's static-file cache doesn't pin an old track when
-        // the coordinator rewrites latest.geojson after a new ride.
-        const cacheBuster = `?t=${Date.now()}`;
+        const clearTrack = () => {
+          if (trackLayer) {
+            trackLayer.remove();
+            trackLayer = null;
+          }
+          if (markerLayer) {
+            markerLayer.remove();
+            markerLayer = null;
+          }
+        };
 
-        fetch(`${trackUrl}${cacheBuster}`, { credentials: "same-origin" })
-          .then((response) => {
+        const cacheBust = () => `?t=${Date.now()}`;
+
+        const renderTrack = async (url, label) => {
+          setStatus(label ? `Loading ${label}…` : "Loading track…");
+          let feature;
+          try {
+            const response = await fetch(`${url}${cacheBust()}`, {
+              credentials: "same-origin",
+            });
             if (!response.ok) {
               throw new Error(`HTTP ${response.status}`);
             }
-            return response.json();
-          })
-          .then((feature) => {
-            const layer = L.geoJSON(feature, {
-              style: {
-                color: "#1e88e5",
-                weight: 4,
-                opacity: 0.9,
-              },
-            }).addTo(map);
-
-            const coords =
-              feature && feature.geometry && Array.isArray(feature.geometry.coordinates)
-                ? feature.geometry.coordinates
-                : [];
-            if (coords.length >= 2) {
-              const [startLon, startLat] = coords[0];
-              const [endLon, endLat] = coords[coords.length - 1];
-              L.circleMarker([startLat, startLon], {
-                radius: 7,
-                color: "#fff",
-                weight: 2,
-                fillColor: "#22c55e",
-                fillOpacity: 1,
-              })
-                .bindTooltip("Start", { permanent: false })
-                .addTo(map);
-              L.circleMarker([endLat, endLon], {
-                radius: 7,
-                color: "#fff",
-                weight: 2,
-                fillColor: "#ef4444",
-                fillOpacity: 1,
-              })
-                .bindTooltip("End", { permanent: false })
-                .addTo(map);
-            }
-
-            const bounds = layer.getBounds();
-            if (bounds.isValid()) {
-              map.fitBounds(bounds, { padding: [24, 24] });
-            }
-
-            const pointCount =
-              feature && feature.properties && feature.properties.point_count;
-            setStatus(
-              pointCount
-                ? `${pointCount.toLocaleString()} GPS points`
-                : `${coords.length.toLocaleString()} GPS points`,
-            );
-            window.setTimeout(() => setStatus(null), 4000);
-          })
-          .catch((err) => {
+            feature = await response.json();
+          } catch (err) {
             console.error("HAWahooligan map failed:", err);
-            setStatus(
-              id
-                ? `Could not load workout ${id}: ${err.message}`
-                : `No track yet (${err.message})`,
-              true,
-            );
+            clearTrack();
+            setStatus(`No track yet (${err.message})`, true);
+            return;
+          }
+
+          clearTrack();
+
+          trackLayer = L.geoJSON(feature, {
+            style: { color: "#1e88e5", weight: 4, opacity: 0.9 },
+          }).addTo(map);
+
+          markerLayer = L.layerGroup().addTo(map);
+          const coords =
+            feature && feature.geometry && Array.isArray(feature.geometry.coordinates)
+              ? feature.geometry.coordinates
+              : [];
+          if (coords.length >= 2) {
+            const [startLon, startLat] = coords[0];
+            const [endLon, endLat] = coords[coords.length - 1];
+            L.circleMarker([startLat, startLon], {
+              radius: 7,
+              color: "#fff",
+              weight: 2,
+              fillColor: "#22c55e",
+              fillOpacity: 1,
+            })
+              .bindTooltip("Start", { permanent: false })
+              .addTo(markerLayer);
+            L.circleMarker([endLat, endLon], {
+              radius: 7,
+              color: "#fff",
+              weight: 2,
+              fillColor: "#ef4444",
+              fillOpacity: 1,
+            })
+              .bindTooltip("End", { permanent: false })
+              .addTo(markerLayer);
+          }
+
+          const bounds = trackLayer.getBounds();
+          if (bounds.isValid()) {
+            map.fitBounds(bounds, { padding: [24, 24] });
+          }
+
+          const pointCount =
+            feature && feature.properties && feature.properties.point_count;
+          setStatus(
+            pointCount
+              ? `${pointCount.toLocaleString()} GPS points`
+              : `${coords.length.toLocaleString()} GPS points`,
+          );
+          window.setTimeout(() => {
+            if (statusEl.textContent.includes("GPS points")) setStatus(null);
+          }, 4000);
+        };
+
+        // ---- picker -----------------------------------------------------------
+        const pickerEl = document.getElementById("picker");
+
+        const formatStarts = (iso) => {
+          if (!iso) return "Unknown date";
+          const d = new Date(iso);
+          if (Number.isNaN(d.getTime())) return iso;
+          return d.toLocaleDateString(undefined, {
+            year: "numeric",
+            month: "short",
+            day: "2-digit",
           });
+        };
+
+        const buildOption = (workout) => {
+          const opt = document.createElement("option");
+          opt.value = `id:${workout.id}`;
+          const label = workout.name || workout.workout_type || "Workout";
+          opt.textContent = `${formatStarts(workout.starts)} — ${label}`;
+          if (!workout.has_track) {
+            opt.disabled = true;
+            opt.textContent += " (no GPS)";
+          }
+          return opt;
+        };
+
+        const populatePicker = (manifest, preselectedId) => {
+          const workouts = manifest && Array.isArray(manifest.workouts)
+            ? manifest.workouts
+            : [];
+          const renderable = workouts.filter((w) => w.has_track);
+          if (renderable.length < 1) {
+            pickerEl.classList.add("hidden");
+            return;
+          }
+
+          pickerEl.replaceChildren();
+          const latestOpt = document.createElement("option");
+          latestOpt.value = "latest";
+          latestOpt.textContent = "Latest workout";
+          pickerEl.append(latestOpt);
+          workouts.forEach((w) => pickerEl.append(buildOption(w)));
+
+          if (preselectedId != null) {
+            pickerEl.value = `id:${preselectedId}`;
+            if (pickerEl.value !== `id:${preselectedId}`) {
+              // The preselected id isn't in the manifest — leave on Latest.
+              pickerEl.value = "latest";
+            }
+          }
+          pickerEl.classList.remove("hidden");
+        };
+
+        const loadFromPicker = () => {
+          const value = pickerEl.value;
+          if (value === "latest") {
+            renderTrack("/local/hawahooligan/latest.geojson", "latest");
+            return;
+          }
+          const id = value.replace(/^id:/, "");
+          const workout = Array.from(pickerEl.options).find(
+            (o) => o.value === value,
+          );
+          renderTrack(
+            `/local/hawahooligan/${encodeURIComponent(id)}.geojson`,
+            workout ? workout.textContent : `workout ${id}`,
+          );
+        };
+
+        // ---- bootstrap --------------------------------------------------------
+        const params = new URLSearchParams(window.location.search);
+        const requestedId = params.get("id");
+
+        fetch(`/local/hawahooligan/workouts.json${cacheBust()}`, {
+          credentials: "same-origin",
+        })
+          .then((response) => (response.ok ? response.json() : null))
+          .catch(() => null)
+          .then((manifest) => {
+            populatePicker(manifest, requestedId);
+            pickerEl.addEventListener("change", loadFromPicker);
+          });
+
+        if (requestedId) {
+          renderTrack(
+            `/local/hawahooligan/${encodeURIComponent(requestedId)}.geojson`,
+            `workout ${requestedId}`,
+          );
+        } else {
+          renderTrack("/local/hawahooligan/latest.geojson", "latest");
+        }
       })();
     </script>
   </body>

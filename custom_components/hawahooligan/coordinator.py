@@ -1,23 +1,25 @@
 """DataUpdateCoordinator for the most recent Wahoo workout.
 
-The coordinator is intentionally cheap: per poll we issue exactly one call to
-``GET /v1/workouts?per_page=1`` and only re-fetch the full workout object when
-the newest workout id changes or the previously fetched ``workout_summary``
-came back ``None`` (frisch beendet — Wahoo backend may still be assembling it).
+Per poll the coordinator issues one ``GET /v1/workouts?per_page=RECENT_COUNT``
+listing call. The newest workout drives the headline sensors; the rest stays
+visible as a lightweight ``recent`` list on the same sensor's attributes and
+in the picker manifest the viewer reads. Only the **newest** workout is ever
+detail-fetched, and only when its id changed (or the previous summary was
+still ``None``) — so the typical poll spends 1 API call against the Wahoo
+rate limit and 0 detail calls.
 
-That keeps the integration comfortably within the Wahoo Sandbox rate limits
-even at 15-minute polling cadence (~96 calls/day). When a new outdoor workout
-with a FIT file URL appears, the coordinator also pulls the FIT, converts it
-to GeoJSON and drops the resulting LineString under ``<config>/www/`` so the
-Lovelace map card can render the track. The same render path is exposed via
-:meth:`async_render_workout` for the backfill loop (initial setup, last N
-historic rides) and the ``hawahooligan.render_workout`` service.
+When a new outdoor workout appears the coordinator pulls its FIT, converts
+to GeoJSON and drops the file under ``<config>/www/hawahooligan/`` next to
+``workouts.json`` (the picker manifest). The same render path is exposed
+via :meth:`async_render_workout` for the backfill loop and the
+``hawahooligan.render_workout`` service.
 """
 
 from __future__ import annotations
 
+import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +32,8 @@ from .api import WahooApi, WahooApiError
 from .const import (
     BACKFILL_COUNT,
     DOMAIN,
+    MANIFEST_FILENAME,
+    RECENT_COUNT,
     UPDATE_INTERVAL,
     WWW_SUBPATH,
     WWW_URL_PREFIX,
@@ -39,6 +43,27 @@ from .const import (
 from .fit import parse_fit_to_geojson, write_geojson
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class RecentWorkout:
+    """Lean summary of one entry in the rolling recent-workouts window.
+
+    Picker UIs only need enough to render a "27 Apr — Morning ride" option and
+    look up the GeoJSON on disk; the full :class:`WorkoutData` is overkill
+    here. ``has_track`` records whether the corresponding ``<id>.geojson`` has
+    actually been rendered — indoor and manual entries stay listed for context
+    but mark this ``False`` so the viewer can disable them.
+    """
+
+    id: int
+    name: str | None
+    starts: str | None
+    workout_type_id: int | None
+    workout_type_name: str | None
+    indoor: bool
+    manual: bool
+    has_track: bool
 
 
 @dataclass(slots=True)
@@ -74,6 +99,7 @@ class WorkoutData:
     cadence_avg_rpm: float | None = None
     calories_kcal: float | None = None
     work_kj: float | None = None
+    recent: list[RecentWorkout] = field(default_factory=list)
 
 
 def _as_float(value: Any) -> float | None:
@@ -127,6 +153,41 @@ def _build_workout_data(workout: dict[str, Any]) -> WorkoutData:
     )
 
 
+def _build_recent_from_listing(
+    workouts: list[dict[str, Any]],
+    directory: Path,
+) -> list[RecentWorkout]:
+    """Map raw listing entries onto :class:`RecentWorkout`, sorted desc by ``starts``.
+
+    Skips entries without an id (defensive against API shape drift). The
+    ``has_track`` flag is filled from the filesystem — the viewer uses it to
+    distinguish renderable rides from indoor/manual sessions.
+    """
+    result: list[RecentWorkout] = []
+    for workout in workouts:
+        workout_id = workout.get("id")
+        if workout_id is None:
+            continue
+        type_id = workout.get("workout_type_id")
+        summary = workout.get("workout_summary") or {}
+        result.append(
+            RecentWorkout(
+                id=workout_id,
+                name=workout.get("name") or summary.get("name"),
+                starts=workout.get("starts"),
+                workout_type_id=type_id,
+                workout_type_name=workout_type_name(type_id),
+                indoor=is_indoor(type_id),
+                manual=bool(workout.get("manual") or summary.get("manual")),
+                has_track=(directory / f"{workout_id}.geojson").is_file(),
+            )
+        )
+    # Listing comes back desc by ``starts`` already, but lean on a Python sort
+    # so a malformed response doesn't reorder the picker silently.
+    result.sort(key=lambda r: r.starts or "", reverse=True)
+    return result
+
+
 def _parse_and_write_fit(directory: Path, workout_id: int | str, payload: bytes) -> str | None:
     """Blocking helper: decode FIT, write GeoJSON, return public URL or ``None``.
 
@@ -147,6 +208,32 @@ def _geojson_path(directory: Path, workout_id: int | str) -> Path:
 def _has_geojson(directory: Path, workout_id: int | str) -> bool:
     """Blocking filesystem check — caller dispatches via executor."""
     return _geojson_path(directory, workout_id).is_file()
+
+
+def _write_manifest(directory: Path, recent: list[RecentWorkout]) -> None:
+    """Blocking: rewrite the picker manifest from a fresh ``recent`` list.
+
+    Re-derives ``has_track`` from the filesystem so the manifest always agrees
+    with what's actually on disk, even if a workout's track gets cleared
+    between polls.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    entries: list[dict[str, Any]] = []
+    for r in recent:
+        entries.append(
+            {
+                "id": r.id,
+                "name": r.name,
+                "starts": r.starts,
+                "workout_type_id": r.workout_type_id,
+                "workout_type": r.workout_type_name,
+                "indoor": r.indoor,
+                "manual": r.manual,
+                "has_track": (directory / f"{r.id}.geojson").is_file(),
+            }
+        )
+    payload = json.dumps({"workouts": entries}, separators=(",", ":"))
+    (directory / MANIFEST_FILENAME).write_text(payload, encoding="utf-8")
 
 
 class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
@@ -172,7 +259,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
 
     async def _async_update_data(self) -> WorkoutData | None:
         try:
-            listing = await self._api.async_get_workouts(per_page=1)
+            listing = await self._api.async_get_workouts(per_page=RECENT_COUNT)
         except WahooApiError as err:
             raise UpdateFailed(str(err)) from err
 
@@ -180,11 +267,16 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         if not workouts:
             self._last_id = None
             self._last_summary_was_null = True
+            await self._refresh_manifest([])
             return None
 
         latest = workouts[0]
         latest_id = latest.get("id")
         listing_summary = latest.get("workout_summary")
+
+        recent = await self.hass.async_add_executor_job(
+            _build_recent_from_listing, workouts, self._geojson_dir
+        )
 
         # Only pull the full object when something genuinely changed. Frisch
         # beendete Fahrten kommen mit `workout_summary == None` zurück; in dem
@@ -194,7 +286,13 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             latest_id != self._last_id or self.data is None or self._last_summary_was_null
         )
         if not needs_detail:
-            return self.data
+            # Returning the existing ``WorkoutData`` but refresh ``recent`` so
+            # newly rendered tracks (backfill / service) show up in the picker.
+            current = self.data
+            if current is not None:
+                current.recent = recent
+            await self._refresh_manifest(recent)
+            return current
 
         try:
             detail = await self._api.async_get_workout(latest_id)
@@ -202,6 +300,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             raise UpdateFailed(str(err)) from err
 
         data = _build_workout_data(detail)
+        data.recent = recent
 
         # Render the track on first sight or when the previously rendered
         # file disappeared (user cleared www/). Indoor/manual rides skip
@@ -219,6 +318,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         self._last_summary_was_null = (
             detail.get("workout_summary") in (None, {}) and listing_summary is None
         )
+        await self._refresh_manifest(recent)
         return data
 
     async def _render(self, workout_id: int | str, file_url: str) -> str | None:
@@ -241,6 +341,13 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         except OSError as err:
             _LOGGER.warning("FIT GeoJSON write for workout %s failed: %s", workout_id, err)
             return None
+
+    async def _refresh_manifest(self, recent: list[RecentWorkout]) -> None:
+        """Rewrite the picker manifest in the executor; never raises."""
+        try:
+            await self.hass.async_add_executor_job(_write_manifest, self._geojson_dir, recent)
+        except OSError as err:
+            _LOGGER.warning("Could not refresh picker manifest: %s", err)
 
     async def async_render_workout(
         self, workout_id: int | str, *, force: bool = False
@@ -285,6 +392,8 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         Returns the number of newly rendered tracks. Listing call counts
         against the Wahoo rate limit; detail calls only happen for workouts
         whose GeoJSON is missing. Auth failures bubble up so HA can reauth.
+        Also refreshes the picker manifest with whatever the listing returned
+        so the viewer sees the historic rides even before the next poll runs.
         """
         try:
             listing = await self._api.async_get_workouts(per_page=count)
@@ -292,8 +401,10 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             _LOGGER.warning("Backfill listing call failed: %s", err)
             return 0
 
+        workouts = listing.get("workouts") or []
+
         rendered = 0
-        for workout in listing.get("workouts") or []:
+        for workout in workouts:
             workout_id = workout.get("id")
             if workout_id is None:
                 continue
@@ -302,4 +413,9 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             url = await self.async_render_workout(workout_id)
             if url is not None:
                 rendered += 1
+
+        recent = await self.hass.async_add_executor_job(
+            _build_recent_from_listing, workouts, self._geojson_dir
+        )
+        await self._refresh_manifest(recent)
         return rendered
