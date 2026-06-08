@@ -1,0 +1,67 @@
+[project]
+# Metadata only — we ship zero importable Python packages. The Home Assistant
+# integration lives under custom_components/ and is installed via HACS, not pip.
+name = "hawahooligan-ha"
+version = "0.0.0"  # tracked in custom_components/hawahooligan/manifest.json
+description = "Home Assistant custom integration for the Wahoo Cloud API (Wahooligan)"
+requires-python = ">=3.13"
+
+[project.optional-dependencies]
+# Tier-1 unit tests for pure helpers (no HA dependency).
+test = [
+    "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
+]
+
+# Tier-2 integration tests against a real Home Assistant instance.  Heavyweight —
+# the plugin pulls in homeassistant itself, pinned to a specific version.
+# pytest and pytest-cov are NOT listed here because the plugin pins both to
+# exact versions that would conflict with the Tier-1 floor.
+test-integration = [
+    # Pin to the latest known-good version: a loose `>=` makes the resolver
+    # back-track over hundreds of older releases.
+    "pytest-homeassistant-custom-component==0.13.316",
+    # FIT-file parser used by the integration (declared in manifest.json
+    # requirements at runtime; needed here so tests can import fit.py).
+    "fitdecode==0.10.0",
+]
+
+[tool.setuptools]
+# Home Assistant custom component, not a normal pip-installable package.
+# Tell setuptools that the project ships zero Python packages so the editable
+# install used by CI doesn't fail.
+packages = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-ra --strict-markers"
+# pytest-homeassistant-custom-component ships pytest-asyncio; auto-mode lets
+# `async def test_…` functions run without an explicit @pytest.mark.asyncio.
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+]
+ignore = [
+    "E501",  # line-length is enforced by the formatter; ruff sometimes can't break
+    "B008",  # function-call-in-default — used intentionally for HA defaults
+    "SIM108", # ternary-vs-if — explicit ifs are often clearer here
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]  # asserts in tests are fine
