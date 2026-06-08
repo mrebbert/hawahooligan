@@ -202,6 +202,7 @@ class WahooLastWorkoutSensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
             "time_zone": data.time_zone,
             "fitness_app_id": data.fitness_app_id,
             "starts": data.starts,
+            "geojson_url": data.geojson_url,
         }
 
 

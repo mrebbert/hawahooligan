@@ -33,7 +33,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: HawahooliganConfigEntry)
         hass, entry
     )
     session = config_entry_oauth2_flow.OAuth2Session(hass, entry, implementation)
-    api = WahooApi(session)
+    api = WahooApi(hass, session)
     coordinator = WahooCoordinator(hass, entry, api)
 
     await coordinator.async_config_entry_first_refresh()
@@ -60,7 +60,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: HawahooliganConfigEntry
             hass, entry
         )
         session = config_entry_oauth2_flow.OAuth2Session(hass, entry, implementation)
-        api = WahooApi(session)
+        api = WahooApi(hass, session)
         await api.async_delete_permissions()
     except Exception as err:  # noqa: BLE001 — best-effort deauth, never block removal
         _LOGGER.warning("Wahoo DELETE /v1/permissions on entry removal failed: %s", err)

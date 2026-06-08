@@ -57,7 +57,7 @@ class WahooOAuth2FlowHandler(config_entry_oauth2_flow.AbstractOAuth2FlowHandler,
         the Wahoo account first, then either create a new entry or update the
         existing one (preserving entry_id and long-term statistics).
         """
-        api = WahooApi(_PreEntryOAuthSession(self.hass, data))
+        api = WahooApi(self.hass, _PreEntryOAuthSession(self.hass, data))
         try:
             user = await api.async_get_user()
         except WahooApiError as err:

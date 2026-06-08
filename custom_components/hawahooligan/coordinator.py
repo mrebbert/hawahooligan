@@ -6,13 +6,17 @@ the newest workout id changes or the previously fetched ``workout_summary``
 came back ``None`` (frisch beendet — Wahoo backend may still be assembling it).
 
 That keeps the integration comfortably within the Wahoo Sandbox rate limits
-even at 15-minute polling cadence (~96 calls/day).
+even at 15-minute polling cadence (~96 calls/day). When a new outdoor workout
+with a FIT file URL appears, the coordinator also pulls the FIT, converts it
+to GeoJSON and drops the resulting LineString under ``<config>/www/`` so the
+Lovelace map card can render the track.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -22,8 +26,15 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .api import WahooApi, WahooApiError
 from .const import DOMAIN, UPDATE_INTERVAL, is_indoor, workout_type_name
+from .fit import parse_fit_to_geojson, write_geojson
 
 _LOGGER = logging.getLogger(__name__)
+
+# Directory under <config>/www where we drop the rendered GeoJSON tracks.
+# HA serves <config>/www/ at /local/, so the public URL becomes
+# ``/local/hawahooligan/<workout_id>.geojson``.
+_GEOJSON_SUBPATH = ("www", "hawahooligan")
+_GEOJSON_URL_PREFIX = "/local/hawahooligan"
 
 
 @dataclass(slots=True)
@@ -46,6 +57,7 @@ class WorkoutData:
     time_zone: str | None = None
     fitness_app_id: int | None = None
     file_url: str | None = None
+    geojson_url: str | None = None
     # Summary fields (units already applied)
     distance_km: float | None = None
     ascent_m: float | None = None
@@ -111,6 +123,19 @@ def _build_workout_data(workout: dict[str, Any]) -> WorkoutData:
     )
 
 
+def _parse_and_write_fit(directory: Path, workout_id: int | str, payload: bytes) -> str | None:
+    """Blocking helper: decode FIT, write GeoJSON, return public URL or ``None``.
+
+    Lives at module scope so the executor can pickle / run it without dragging
+    the coordinator instance along.
+    """
+    feature = parse_fit_to_geojson(payload)
+    if feature is None:
+        return None
+    write_geojson(directory, workout_id, feature)
+    return f"{_GEOJSON_URL_PREFIX}/{workout_id}.geojson"
+
+
 class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
     """Polls Wahoo Cloud for the user's most recent workout."""
 
@@ -128,11 +153,13 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         self._last_id: int | None = None
         self._last_summary_was_null: bool = True
 
+    @property
+    def _geojson_dir(self) -> Path:
+        return Path(self.hass.config.path(*_GEOJSON_SUBPATH))
+
     async def _async_update_data(self) -> WorkoutData | None:
         try:
             listing = await self._api.async_get_workouts(per_page=1)
-        except ConfigEntryAuthFailed:
-            raise  # Let HA start the reauth flow.
         except WahooApiError as err:
             raise UpdateFailed(str(err)) from err
 
@@ -158,13 +185,46 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
 
         try:
             detail = await self._api.async_get_workout(latest_id)
-        except ConfigEntryAuthFailed:
-            raise
         except WahooApiError as err:
             raise UpdateFailed(str(err)) from err
+
+        data = _build_workout_data(detail)
+
+        # Only worth trying when this is a fresh workout id with a track-bearing
+        # source: outdoor + non-manual + a file URL. Indoor / manual entries are
+        # the documented "no GPS" case and intentionally skipped silently.
+        if (
+            latest_id != self._last_id
+            and data.workout_id is not None
+            and data.file_url
+            and not data.manual
+            and not data.indoor
+        ):
+            data.geojson_url = await self._build_geojson(data.workout_id, data.file_url)
 
         self._last_id = latest_id
         self._last_summary_was_null = (
             detail.get("workout_summary") in (None, {}) and listing_summary is None
         )
-        return _build_workout_data(detail)
+        return data
+
+    async def _build_geojson(self, workout_id: int | str, file_url: str) -> str | None:
+        """Download the FIT for ``workout_id`` and write the GeoJSON track.
+
+        Errors here never break the update — at worst the headline sensors fill
+        in and the map stays empty until the next workout shows up. Auth
+        failures still propagate so HA can launch reauth.
+        """
+        try:
+            payload = await self._api.async_download_fit(file_url)
+        except ConfigEntryAuthFailed:
+            raise
+        if payload is None:
+            return None
+        try:
+            return await self.hass.async_add_executor_job(
+                _parse_and_write_fit, self._geojson_dir, workout_id, payload
+            )
+        except OSError as err:
+            _LOGGER.warning("FIT GeoJSON write for workout %s failed: %s", workout_id, err)
+            return None

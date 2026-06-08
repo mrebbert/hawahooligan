@@ -1,11 +1,15 @@
 """Async Wahoo Cloud API client.
 
 Wraps the small subset of the Wahoo Cloud API that the integration uses:
-authenticated user, workout listing/details, and permission deauthorize.
+authenticated user, workout listing/details, permission deauthorize, and the
+FIT-file download.
 
-All requests go through ``OAuth2Session.async_request`` so the HA OAuth2
+All REST requests go through ``OAuth2Session.async_request`` so the HA OAuth2
 framework handles ``Bearer`` injection and just-in-time token refresh,
-including the rotating refresh-token Wahoo issues on every refresh.
+including the rotating refresh-token Wahoo issues on every refresh. FIT
+downloads bypass the auth layer (CDN URLs are pre-signed and don't count
+against rate limits) and only fall back to Bearer if the plain GET returns
+401, which would mean the URL has been rotated or the CDN now requires it.
 """
 
 from __future__ import annotations
@@ -14,7 +18,9 @@ import logging
 from typing import Any
 
 from aiohttp import ClientError, ClientResponseError
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.config_entry_oauth2_flow import OAuth2Session
 
 from .const import API_BASE
@@ -29,7 +35,8 @@ class WahooApiError(Exception):
 class WahooApi:
     """Thin async client wired to a HA-managed ``OAuth2Session``."""
 
-    def __init__(self, session: OAuth2Session) -> None:
+    def __init__(self, hass: HomeAssistant, session: OAuth2Session) -> None:
+        self._hass = hass
         self._session = session
 
     async def _request(
@@ -92,3 +99,49 @@ class WahooApi:
         should swallow errors so removal never blocks.
         """
         await self._request("DELETE", "/v1/permissions")
+
+    async def async_download_fit(self, url: str) -> bytes | None:
+        """Download a FIT file from a ``workout_summary.file.url``.
+
+        Tries the URL anonymously first (CDN-signed; doesn't consume the API
+        rate limit). Falls back to Bearer auth on 401, which is the documented
+        recovery path for rotated/expired signed URLs. Returns ``None`` on any
+        non-auth failure so the caller can skip FIT processing for this poll
+        and try again on the next one.
+        """
+        client = async_get_clientsession(self._hass)
+        try:
+            async with client.get(url) as response:
+                if response.status == 401:
+                    _LOGGER.debug("FIT CDN returned 401, retrying with Bearer: %s", url)
+                elif response.status >= 400:
+                    _LOGGER.warning("FIT download %s returned HTTP %s", url, response.status)
+                    return None
+                else:
+                    return await response.read()
+        except ClientError as err:
+            _LOGGER.warning("FIT download %s transport error: %s", url, err)
+            return None
+
+        # 401 fallback — authenticated retry via OAuth2Session.
+        try:
+            response = await self._session.async_request("GET", url)
+        except ClientResponseError as err:
+            if err.status in (400, 401):
+                raise ConfigEntryAuthFailed(
+                    f"Wahoo FIT auth retry failed ({err.status} {err.message})"
+                ) from err
+            _LOGGER.warning("FIT download %s authenticated retry failed: %s", url, err)
+            return None
+        except ClientError as err:
+            _LOGGER.warning("FIT download %s authenticated retry transport: %s", url, err)
+            return None
+
+        if response.status == 401:
+            raise ConfigEntryAuthFailed("Wahoo FIT URL still 401 after Bearer retry")
+        if response.status >= 400:
+            _LOGGER.warning(
+                "FIT download authenticated retry %s returned HTTP %s", url, response.status
+            )
+            return None
+        return await response.read()

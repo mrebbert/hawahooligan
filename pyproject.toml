@@ -11,6 +11,9 @@ requires-python = ">=3.13"
 test = [
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
+    # Tier-1 covers ``fit.py`` directly via importlib; the parser is a thin
+    # wrapper around fitdecode so the test module needs it at import time.
+    "fitdecode==0.10.0",
 ]
 
 # Tier-2 integration tests against a real Home Assistant instance.  Heavyweight —
