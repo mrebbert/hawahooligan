@@ -1,8 +1,8 @@
 # Example Lovelace view for HAWahooligan.
 #
-# Renders the most recent workout's GPS track via the Leaflet viewer that the
-# integration auto-provisions at /local/hawahooligan/map.html, alongside the
-# summary sensors. No HACS frontend cards required — the iframe and entities
+# Pairs the bundled Leaflet viewer (/local/hawahooligan/map.html) with the
+# workout sensors, grouped by topic so the long list of measurements doesn't
+# overwhelm the map. No HACS frontend cards required — iframe and entities
 # cards ship with Home Assistant.
 #
 # Replace the entity-id prefix below if your integration was created with a
@@ -12,8 +12,8 @@
 # Layout note: this view uses the modern `sections` type. In a sections grid
 # the iframe card's `aspect_ratio` is ignored (HA frontend treats grid
 # placement as authoritative — see hui-iframe-card.ts), so the map needs an
-# explicit ``grid_options.rows`` to get height. Each row is ~56px; ``rows: 9``
-# is a comfortable starting point. Increase for a bigger map.
+# explicit ``grid_options.rows`` to get height. Each row is ~56px;
+# ``rows: 9`` is a comfortable starting point — increase for a bigger map.
 views:
   - title: Wahoo
     path: wahoo
@@ -24,7 +24,7 @@ views:
       - type: grid
         cards:
           - type: heading
-            heading: Letzte Fahrt
+            heading: Karte
             heading_style: title
             icon: mdi:map-marker-path
           - type: iframe
@@ -33,33 +33,84 @@ views:
             grid_options:
               columns: 12
               rows: 9
-            # To view a specific workout instead of the latest, append its id:
+            # To open a specific workout instead of letting the picker drive,
+            # append ?id=<workout_id>:
             # url: /local/hawahooligan/map.html?id=123456
 
       - type: grid
         cards:
           - type: heading
-            heading: Werte
+            heading: Tour
             heading_style: title
-            icon: mdi:chart-bar
+            icon: mdi:bike
           - type: entities
             entities:
               - entity: sensor.hawahooligan_last_workout
                 name: Start
                 secondary_info: last-changed
-              - entity: sensor.hawahooligan_distance
+              - type: attribute
+                entity: sensor.hawahooligan_last_workout
+                attribute: name
+                name: Name
+              - type: attribute
+                entity: sensor.hawahooligan_last_workout
+                attribute: workout_type
+                name: Typ
+              - type: attribute
+                entity: sensor.hawahooligan_last_workout
+                attribute: indoor
+                name: Indoor
+              - type: attribute
+                entity: sensor.hawahooligan_last_workout
+                attribute: route_id
+                name: Route-ID
+              - type: attribute
+                entity: sensor.hawahooligan_last_workout
+                attribute: plan_id
+                name: Plan-ID
+              - type: attribute
+                entity: sensor.hawahooligan_last_workout
+                attribute: selected_workout_id
+                name: Auswahl
+            state_color: false
+            grid_options:
+              columns: 12
+              rows: auto
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Zeit & Strecke
+            heading_style: title
+            icon: mdi:clock-outline
+          - type: entities
+            entities:
               - entity: sensor.hawahooligan_duration
               - entity: sensor.hawahooligan_duration_total
               - entity: sensor.hawahooligan_duration_paused
+              - entity: sensor.hawahooligan_distance
               - entity: sensor.hawahooligan_ascent
               - entity: sensor.hawahooligan_speed_avg
-              - entity: sensor.hawahooligan_heart_rate_avg
-              - entity: sensor.hawahooligan_cadence_avg
+              - entity: sensor.hawahooligan_calories
+            state_color: false
+            grid_options:
+              columns: 12
+              rows: auto
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Leistung & Körper
+            heading_style: title
+            icon: mdi:flash
+          - type: entities
+            entities:
               - entity: sensor.hawahooligan_power_avg
               - entity: sensor.hawahooligan_power_np
               - entity: sensor.hawahooligan_tss
-              - entity: sensor.hawahooligan_calories
               - entity: sensor.hawahooligan_work
+              - entity: sensor.hawahooligan_heart_rate_avg
+              - entity: sensor.hawahooligan_cadence_avg
             state_color: false
             grid_options:
               columns: 12
