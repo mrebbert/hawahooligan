@@ -13,7 +13,7 @@ test = [
     "pytest-cov>=7.1.0",
     # Tier-1 covers ``fit.py`` directly via importlib; the parser is a thin
     # wrapper around fitdecode so the test module needs it at import time.
-    "fitdecode==0.10.0",
+    "fitdecode==0.11.0",
 ]
 
 # Tier-2 integration tests against a real Home Assistant instance.  Heavyweight —
@@ -26,7 +26,7 @@ test-integration = [
     "pytest-homeassistant-custom-component==0.13.316",
     # FIT-file parser used by the integration (declared in manifest.json
     # requirements at runtime; needed here so tests can import fit.py).
-    "fitdecode==0.10.0",
+    "fitdecode==0.11.0",
 ]
 
 [tool.setuptools]
