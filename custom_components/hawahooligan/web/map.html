@@ -7,12 +7,16 @@
   Behaviour:
     * Loads /local/hawahooligan/workouts.json (written by the coordinator)
       and populates a dropdown of the most recent rides.
-    * Pre-selects the workout referenced by the ?id=<workout_id> query
-      parameter, or "Latest" otherwise.
+    * On picker change, calls the HA service hawahooligan.select_workout so
+      the headline sensors follow the same selection. The auth token is read
+      from localStorage.hassTokens — the iframe runs same-origin with HA, so
+      this works out of the box once you are signed in.
     * Fetches /local/hawahooligan/<id>.geojson (or latest.geojson) and
       renders it with start/end markers + fitBounds.
+    * Pre-selects the workout referenced by the ?id=<workout_id> query
+      parameter, then by manifest.selected_id, then "Latest".
 
-  HAWahooligan-Viewer-Version: 2
+  HAWahooligan-Viewer-Version: 3
   Bump that version line in custom_components/hawahooligan/web/map.html when
   you ship breaking changes — the integration re-provisions the file
   whenever the version stamp in <config>/www/hawahooligan/map.html differs
@@ -206,6 +210,58 @@
           }, 4000);
         };
 
+        // ---- HA service bridge ------------------------------------------------
+        const getHassToken = () => {
+          try {
+            const raw = window.localStorage.getItem("hassTokens");
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            return (parsed && parsed.access_token) || null;
+          } catch (err) {
+            console.warn("Could not read hassTokens from localStorage:", err);
+            return null;
+          }
+        };
+
+        // Picks ``workoutIdOrLatest`` (a number or the string "latest") via
+        // the HA REST service so the headline sensors follow the picker.
+        // Returns true on a 2xx response. Best-effort: silent failure just
+        // means the map updates but sensors stay on the previous selection.
+        const callSelectService = async (workoutIdOrLatest) => {
+          const token = getHassToken();
+          if (!token) return false;
+          const body =
+            workoutIdOrLatest === "latest"
+              ? { workout_id: "latest" }
+              : { workout_id: Number(workoutIdOrLatest) };
+          try {
+            const response = await fetch(
+              "/api/services/hawahooligan/select_workout",
+              {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify(body),
+              },
+            );
+            if (!response.ok) {
+              console.warn(
+                "select_workout service call failed:",
+                response.status,
+                await response.text(),
+              );
+              return false;
+            }
+            return true;
+          } catch (err) {
+            console.warn("select_workout service call failed:", err);
+            return false;
+          }
+        };
+
         // ---- picker -----------------------------------------------------------
         const pickerEl = document.getElementById("picker");
 
@@ -232,7 +288,7 @@
           return opt;
         };
 
-        const populatePicker = (manifest, preselectedId) => {
+        const populatePicker = (manifest, urlPreselectId) => {
           const workouts = manifest && Array.isArray(manifest.workouts)
             ? manifest.workouts
             : [];
@@ -249,30 +305,56 @@
           pickerEl.append(latestOpt);
           workouts.forEach((w) => pickerEl.append(buildOption(w)));
 
-          if (preselectedId != null) {
-            pickerEl.value = `id:${preselectedId}`;
-            if (pickerEl.value !== `id:${preselectedId}`) {
-              // The preselected id isn't in the manifest — leave on Latest.
+          // Preference order: URL ?id= → manifest.selected_id → Latest.
+          const manifestSelectedId =
+            manifest && manifest.selected_id != null
+              ? String(manifest.selected_id)
+              : null;
+          const desiredId = urlPreselectId || manifestSelectedId;
+          if (desiredId) {
+            const candidate = `id:${desiredId}`;
+            if (
+              Array.from(pickerEl.options).some((o) => o.value === candidate)
+            ) {
+              pickerEl.value = candidate;
+            } else {
               pickerEl.value = "latest";
             }
           }
           pickerEl.classList.remove("hidden");
         };
 
-        const loadFromPicker = () => {
+        const loadFromPicker = async () => {
           const value = pickerEl.value;
+          const payload = value === "latest" ? "latest" : value.replace(/^id:/, "");
+
+          // Fire-and-forget the HA service so sensors stay in sync. We don't
+          // wait for the coordinator to refresh before painting the new
+          // track — the map updates immediately.
+          const synced = await callSelectService(payload);
+
           if (value === "latest") {
             renderTrack("/local/hawahooligan/latest.geojson", "latest");
-            return;
+          } else {
+            const id = payload;
+            const workout = Array.from(pickerEl.options).find(
+              (o) => o.value === value,
+            );
+            renderTrack(
+              `/local/hawahooligan/${encodeURIComponent(id)}.geojson`,
+              workout ? workout.textContent : `workout ${id}`,
+            );
           }
-          const id = value.replace(/^id:/, "");
-          const workout = Array.from(pickerEl.options).find(
-            (o) => o.value === value,
-          );
-          renderTrack(
-            `/local/hawahooligan/${encodeURIComponent(id)}.geojson`,
-            workout ? workout.textContent : `workout ${id}`,
-          );
+
+          if (!synced) {
+            window.setTimeout(() => {
+              if (!statusEl.classList.contains("hidden")) return;
+              setStatus(
+                "Map updated; sensors not synced (sign in to HA to enable)",
+                true,
+              );
+            }, 4500);
+          }
         };
 
         // ---- bootstrap --------------------------------------------------------
@@ -287,16 +369,23 @@
           .then((manifest) => {
             populatePicker(manifest, requestedId);
             pickerEl.addEventListener("change", loadFromPicker);
-          });
 
-        if (requestedId) {
-          renderTrack(
-            `/local/hawahooligan/${encodeURIComponent(requestedId)}.geojson`,
-            `workout ${requestedId}`,
-          );
-        } else {
-          renderTrack("/local/hawahooligan/latest.geojson", "latest");
-        }
+            // The very first render uses the same rules the picker applied:
+            // URL id → manifest.selected_id → latest.
+            const initialId =
+              requestedId ||
+              (manifest && manifest.selected_id != null
+                ? String(manifest.selected_id)
+                : null);
+            if (initialId) {
+              renderTrack(
+                `/local/hawahooligan/${encodeURIComponent(initialId)}.geojson`,
+                `workout ${initialId}`,
+              );
+            } else {
+              renderTrack("/local/hawahooligan/latest.geojson", "latest");
+            }
+          });
       })();
     </script>
   </body>

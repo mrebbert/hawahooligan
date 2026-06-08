@@ -30,3 +30,29 @@ render_workout:
       default: false
       selector:
         boolean:
+
+select_workout:
+  name: Select workout
+  description: >-
+    Pin the headline sensors and the map viewer to a specific workout id so
+    the entire dashboard follows the chosen ride. Pass workout_id "latest"
+    (or leave it empty) to release the pin and track the newest workout
+    again.
+  fields:
+    workout_id:
+      name: Workout ID
+      description: >-
+        Numeric Wahoo workout id, or the literal "latest" to follow the
+        newest workout.
+      required: false
+      example: "12345678"
+      selector:
+        text:
+    config_entry_id:
+      name: Config entry
+      description: >-
+        Only required when more than one Wahoo account is configured.
+      required: false
+      selector:
+        config_entry:
+          integration: hawahooligan

@@ -1,18 +1,17 @@
-"""DataUpdateCoordinator for the most recent Wahoo workout.
+"""DataUpdateCoordinator for the user's currently-selected Wahoo workout.
 
 Per poll the coordinator issues one ``GET /v1/workouts?per_page=RECENT_COUNT``
-listing call. The newest workout drives the headline sensors; the rest stays
-visible as a lightweight ``recent`` list on the same sensor's attributes and
-in the picker manifest the viewer reads. Only the **newest** workout is ever
-detail-fetched, and only when its id changed (or the previous summary was
-still ``None``) — so the typical poll spends 1 API call against the Wahoo
-rate limit and 0 detail calls.
+listing call. By default the newest workout drives the headline sensors; if
+the user explicitly picked a historic workout (via the
+``hawahooligan.select_workout`` service / the bundled viewer dropdown) the
+coordinator follows that selection instead — sensor state and map URL both
+reflect the same chosen ride. The detail call (``GET /v1/workouts/:id``)
+runs at most once per poll and is skipped when the target id is already in
+the in-memory detail cache.
 
-When a new outdoor workout appears the coordinator pulls its FIT, converts
-to GeoJSON and drops the file under ``<config>/www/hawahooligan/`` next to
-``workouts.json`` (the picker manifest). The same render path is exposed
-via :meth:`async_render_workout` for the backfill loop and the
-``hawahooligan.render_workout`` service.
+Picker UIs read ``<config>/www/hawahooligan/workouts.json`` (the manifest),
+which now records the current ``selected_id`` so a fresh viewer load can
+restore the right dropdown option.
 """
 
 from __future__ import annotations
@@ -70,9 +69,11 @@ class RecentWorkout:
 class WorkoutData:
     """Shape exposed to sensor entities.
 
+    Reflects whichever workout the user is currently viewing (latest by
+    default, or whatever they picked via :meth:`async_select_workout`).
     Numeric values are pre-cast to ``float`` and converted to the units the
-    sensors advertise (km, km/h, min, …). Anything Wahoo doesn't supply for a
-    given workout type stays as ``None`` so sensors can show ``unknown``.
+    sensors advertise (km, km/h, min, …). Anything Wahoo doesn't supply for
+    a given workout type stays as ``None`` so sensors can show ``unknown``.
     """
 
     workout_id: int | None = None
@@ -99,7 +100,9 @@ class WorkoutData:
     cadence_avg_rpm: float | None = None
     calories_kcal: float | None = None
     work_kj: float | None = None
+    # Picker context
     recent: list[RecentWorkout] = field(default_factory=list)
+    selected_workout_id: int | None = None
 
 
 def _as_float(value: Any) -> float | None:
@@ -210,12 +213,13 @@ def _has_geojson(directory: Path, workout_id: int | str) -> bool:
     return _geojson_path(directory, workout_id).is_file()
 
 
-def _write_manifest(directory: Path, recent: list[RecentWorkout]) -> None:
+def _write_manifest(directory: Path, recent: list[RecentWorkout], selected_id: int | None) -> None:
     """Blocking: rewrite the picker manifest from a fresh ``recent`` list.
 
     Re-derives ``has_track`` from the filesystem so the manifest always agrees
     with what's actually on disk, even if a workout's track gets cleared
-    between polls.
+    between polls. ``selected_id`` is exported so a freshly-loaded viewer can
+    pre-select the right option without round-tripping HA.
     """
     directory.mkdir(parents=True, exist_ok=True)
     entries: list[dict[str, Any]] = []
@@ -232,12 +236,15 @@ def _write_manifest(directory: Path, recent: list[RecentWorkout]) -> None:
                 "has_track": (directory / f"{r.id}.geojson").is_file(),
             }
         )
-    payload = json.dumps({"workouts": entries}, separators=(",", ":"))
+    payload = json.dumps(
+        {"workouts": entries, "selected_id": selected_id},
+        separators=(",", ":"),
+    )
     (directory / MANIFEST_FILENAME).write_text(payload, encoding="utf-8")
 
 
 class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
-    """Polls Wahoo Cloud for the user's most recent workout."""
+    """Polls Wahoo Cloud and serves the currently-selected workout."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, api: WahooApi) -> None:
         super().__init__(
@@ -248,14 +255,37 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             config_entry=entry,
         )
         self._api = api
+        # ``None`` means "follow latest"; an int pins to a specific workout id.
+        self._selected_workout_id: int | None = None
         # Track the workout we last fully fetched so we can skip the extra
         # detail call when nothing changed since the previous poll.
-        self._last_id: int | None = None
-        self._last_summary_was_null: bool = True
+        self._last_target_id: int | None = None
+        self._last_latest_summary_was_null: bool = True
+        # WorkoutData by workout_id — historic picks are reused from here so
+        # toggling between rides doesn't burn a Wahoo API call each time.
+        self._detail_cache: dict[int, WorkoutData] = {}
 
     @property
     def _geojson_dir(self) -> Path:
         return Path(self.hass.config.path(*WWW_SUBPATH))
+
+    @property
+    def selected_workout_id(self) -> int | None:
+        """Currently pinned workout id, or ``None`` when following latest."""
+        return self._selected_workout_id
+
+    async def async_select_workout(self, workout_id: int | None) -> None:
+        """Pin the sensors and map to ``workout_id`` (or ``None`` for latest).
+
+        Invalidates the detail cache for the previously-selected workout so a
+        re-pick after a re-render picks up the new file URL. Triggers an
+        immediate refresh so the viewer sees the change without waiting up to
+        15 minutes for the next poll.
+        """
+        if workout_id == self._selected_workout_id:
+            return
+        self._selected_workout_id = workout_id
+        await self.async_request_refresh()
 
     async def _async_update_data(self) -> WorkoutData | None:
         try:
@@ -265,9 +295,9 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
 
         workouts = listing.get("workouts") or []
         if not workouts:
-            self._last_id = None
-            self._last_summary_was_null = True
-            await self._refresh_manifest([])
+            self._last_target_id = None
+            self._last_latest_summary_was_null = True
+            await self._refresh_manifest([], None)
             return None
 
         latest = workouts[0]
@@ -278,48 +308,98 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             _build_recent_from_listing, workouts, self._geojson_dir
         )
 
-        # Only pull the full object when something genuinely changed. Frisch
-        # beendete Fahrten kommen mit `workout_summary == None` zurück; in dem
-        # Fall ebenfalls erneut nachladen, damit der nächste Poll die Werte
-        # einsammeln kann, sobald Wahoo sie veröffentlicht hat.
-        needs_detail = (
-            latest_id != self._last_id or self.data is None or self._last_summary_was_null
-        )
-        if not needs_detail:
-            # Returning the existing ``WorkoutData`` but refresh ``recent`` so
-            # newly rendered tracks (backfill / service) show up in the picker.
-            current = self.data
-            if current is not None:
-                current.recent = recent
-            await self._refresh_manifest(recent)
-            return current
+        target_id = self._resolve_target_id(latest_id)
 
-        try:
-            detail = await self._api.async_get_workout(latest_id)
-        except WahooApiError as err:
-            raise UpdateFailed(str(err)) from err
-
-        data = _build_workout_data(detail)
-        data.recent = recent
-
-        # Render the track on first sight or when the previously rendered
-        # file disappeared (user cleared www/). Indoor/manual rides skip
-        # silently — they don't have GPS to render.
-        if data.workout_id is not None and data.file_url and not data.manual and not data.indoor:
-            already_rendered = await self.hass.async_add_executor_job(
-                _has_geojson, self._geojson_dir, data.workout_id
+        # Decide whether the detail call is necessary. For "follow latest"
+        # we re-use the existing change-detection (summary may settle late);
+        # for historic picks we lean on the in-memory cache.
+        if target_id == latest_id:
+            needs_detail = (
+                target_id != self._last_target_id
+                or self.data is None
+                or self.data.workout_id != target_id
+                or self._last_latest_summary_was_null
             )
-            if not already_rendered or latest_id != self._last_id:
-                data.geojson_url = await self._render(data.workout_id, data.file_url)
-            else:
-                data.geojson_url = f"{WWW_URL_PREFIX}/{data.workout_id}.geojson"
+        else:
+            needs_detail = target_id not in self._detail_cache
 
-        self._last_id = latest_id
-        self._last_summary_was_null = (
-            detail.get("workout_summary") in (None, {}) and listing_summary is None
-        )
-        await self._refresh_manifest(recent)
+        if needs_detail:
+            try:
+                detail = await self._api.async_get_workout(target_id)
+            except WahooApiError as err:
+                # When a historic pick fails, fall back to whatever we have so
+                # the headline sensors stay coherent. Latest failures still
+                # need to surface as UpdateFailed.
+                if target_id == latest_id:
+                    raise UpdateFailed(str(err)) from err
+                _LOGGER.warning(
+                    "Could not fetch selected workout %s: %s — falling back to latest",
+                    target_id,
+                    err,
+                )
+                self._selected_workout_id = None
+                target_id = latest_id
+                try:
+                    detail = await self._api.async_get_workout(target_id)
+                except WahooApiError as inner_err:
+                    raise UpdateFailed(str(inner_err)) from inner_err
+                needs_detail = True
+
+            data = _build_workout_data(detail)
+            data.recent = recent
+            data.selected_workout_id = self._selected_workout_id
+
+            # Render the track on first sight or when the previously rendered
+            # file disappeared (user cleared www/). Indoor/manual rides skip
+            # silently — they don't have GPS to render.
+            if (
+                data.workout_id is not None
+                and data.file_url
+                and not data.manual
+                and not data.indoor
+            ):
+                already_rendered = await self.hass.async_add_executor_job(
+                    _has_geojson, self._geojson_dir, data.workout_id
+                )
+                if not already_rendered:
+                    data.geojson_url = await self._render(data.workout_id, data.file_url)
+                else:
+                    data.geojson_url = f"{WWW_URL_PREFIX}/{data.workout_id}.geojson"
+
+            self._detail_cache[target_id] = data
+            if target_id == latest_id:
+                self._last_latest_summary_was_null = (
+                    detail.get("workout_summary") in (None, {}) and listing_summary is None
+                )
+            self._last_target_id = target_id
+            await self._refresh_manifest(recent, self._selected_workout_id)
+            return data
+
+        # No new detail call required. Reuse the cached WorkoutData but make
+        # sure the cheap context fields (recent list, current selection) keep
+        # ticking with each poll.
+        data = self._detail_cache.get(target_id) or self.data
+        if data is None:
+            # Shouldn't happen: a target_id with no fetch and no cache means a
+            # logic regression. Detail-fetch defensively rather than crash.
+            try:
+                detail = await self._api.async_get_workout(target_id)
+            except WahooApiError as err:
+                raise UpdateFailed(str(err)) from err
+            data = _build_workout_data(detail)
+            self._detail_cache[target_id] = data
+
+        data.recent = recent
+        data.selected_workout_id = self._selected_workout_id
+        self._last_target_id = target_id
+        await self._refresh_manifest(recent, self._selected_workout_id)
         return data
+
+    def _resolve_target_id(self, latest_id: int) -> int:
+        """Resolve the selection to a concrete workout id for this poll."""
+        if self._selected_workout_id is None:
+            return latest_id
+        return self._selected_workout_id
 
     async def _render(self, workout_id: int | str, file_url: str) -> str | None:
         """Download the FIT for ``workout_id`` and write the GeoJSON track.
@@ -342,10 +422,12 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             _LOGGER.warning("FIT GeoJSON write for workout %s failed: %s", workout_id, err)
             return None
 
-    async def _refresh_manifest(self, recent: list[RecentWorkout]) -> None:
+    async def _refresh_manifest(self, recent: list[RecentWorkout], selected_id: int | None) -> None:
         """Rewrite the picker manifest in the executor; never raises."""
         try:
-            await self.hass.async_add_executor_job(_write_manifest, self._geojson_dir, recent)
+            await self.hass.async_add_executor_job(
+                _write_manifest, self._geojson_dir, recent, selected_id
+            )
         except OSError as err:
             _LOGGER.warning("Could not refresh picker manifest: %s", err)
 
@@ -417,5 +499,5 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         recent = await self.hass.async_add_executor_job(
             _build_recent_from_listing, workouts, self._geojson_dir
         )
-        await self._refresh_manifest(recent)
+        await self._refresh_manifest(recent, self._selected_workout_id)
         return rendered

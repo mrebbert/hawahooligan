@@ -61,6 +61,20 @@
           "description": "Re-download the FIT and overwrite the existing GeoJSON even if a file for this workout id already exists."
         }
       }
+    },
+    "select_workout": {
+      "name": "Select workout",
+      "description": "Pin the headline sensors and the map viewer to a specific workout id so the entire dashboard follows the chosen ride. Pass 'latest' to release the pin.",
+      "fields": {
+        "workout_id": {
+          "name": "Workout ID",
+          "description": "Numeric Wahoo workout id, or the literal 'latest' to follow the newest workout."
+        },
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "Only required when more than one Wahoo account is configured."
+        }
+      }
     }
   }
 }

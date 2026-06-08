@@ -45,6 +45,11 @@ BACKFILL_COUNT: Final = 20
 # re-rendering after a viewer bump.
 SERVICE_RENDER_WORKOUT: Final = "render_workout"
 
+# Lets the bundled viewer (and any other automation) pick which workout the
+# headline sensors and map should show. Default selection is the latest
+# workout — passing ``workout_id=None`` resets back to that behaviour.
+SERVICE_SELECT_WORKOUT: Final = "select_workout"
+
 # Size of the rolling "recent workouts" window the coordinator keeps in
 # ``WorkoutData.recent`` and exports to the picker manifest. Same value as
 # ``BACKFILL_COUNT`` by design: every workout the picker can pick has a
