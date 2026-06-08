@@ -2,7 +2,7 @@ render_workout:
   name: Render workout track
   description: >-
     Fetch a Wahoo workout by id and render its FIT file to a GeoJSON track
-    under <config>/www/hawahooligan/<id>.geojson. Useful for backfilling
+    under the HA config www/hawahooligan/ directory. Useful for backfilling
     historic rides older than the first-setup window.
   fields:
     workout_id:

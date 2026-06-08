@@ -46,7 +46,7 @@
   "services": {
     "render_workout": {
       "name": "Render workout track",
-      "description": "Fetch a Wahoo workout by id and render its FIT file to a GeoJSON track under <config>/www/hawahooligan/<id>.geojson.",
+      "description": "Fetch a Wahoo workout by id and render its FIT file to a GeoJSON track under the HA config www/hawahooligan/ directory.",
       "fields": {
         "workout_id": {
           "name": "Workout ID",
