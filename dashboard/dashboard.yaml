@@ -8,6 +8,12 @@
 # Replace the entity-id prefix below if your integration was created with a
 # non-default title. Find the IDs under Settings → Devices & Services →
 # HAWahooligan → entities.
+#
+# Layout note: this view uses the modern `sections` type. In a sections grid
+# the iframe card's `aspect_ratio` is ignored (HA frontend treats grid
+# placement as authoritative — see hui-iframe-card.ts), so the map needs an
+# explicit ``grid_options.rows`` to get height. Each row is ~56px; ``rows: 9``
+# is a comfortable starting point. Increase for a bigger map.
 views:
   - title: Wahoo
     path: wahoo
@@ -23,12 +29,12 @@ views:
             icon: mdi:map-marker-path
           - type: iframe
             url: /local/hawahooligan/map.html
-            aspect_ratio: 75%
-            # To view a specific workout instead of the latest, append its id:
-            # url: /local/hawahooligan/map.html?id=123456
+            # In sections view aspect_ratio is ignored — size via grid_options.
             grid_options:
               columns: 12
-              rows: auto
+              rows: 9
+            # To view a specific workout instead of the latest, append its id:
+            # url: /local/hawahooligan/map.html?id=123456
 
       - type: grid
         cards:

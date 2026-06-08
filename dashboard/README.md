@@ -40,11 +40,25 @@ Use the `id` query parameter in the iframe URL:
 ```yaml
 - type: iframe
   url: /local/hawahooligan/map.html?id=123456
-  aspect_ratio: 75%
+  grid_options:
+    columns: 12
+    rows: 9
 ```
 
 The id matches the Wahoo `workout_id` exposed as an attribute on
 `sensor.hawahooligan_last_workout`.
+
+## Why `grid_options.rows` instead of `aspect_ratio`?
+
+HA's iframe card ignores `aspect_ratio` when it lives inside a `sections`
+grid (or any other grid-laid-out container) — the frontend assumes the
+grid's row/column count is authoritative. Without explicit `rows`, the
+iframe collapses to zero height and you see only a thin strip at the top
+of the card.
+
+Set `rows` to the number of 56-px grid units of height you want
+(`rows: 9` ≈ 500 px). On a non-`sections` view (`type: cards`, etc.) the
+classic `aspect_ratio: '75%'` works as expected.
 
 ## Pinning your copy of `map.html`
 
