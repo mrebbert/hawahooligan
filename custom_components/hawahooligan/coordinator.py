@@ -25,6 +25,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import WahooApi, WahooApiError
@@ -40,6 +41,8 @@ from .const import (
     workout_type_name,
 )
 from .fit import parse_fit_to_geojson, write_geojson
+from .totals import SCHEMA_VERSION as _TOTALS_SCHEMA_VERSION
+from .totals import LifetimeTotals, WorkoutContribution
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -280,6 +283,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             config_entry=entry,
         )
         self._api = api
+        self._entry_id = entry.entry_id
         # ``None`` means "follow latest"; an int pins to a specific workout id.
         self._selected_workout_id: int | None = None
         # Track the workout we last fully fetched so we can skip the extra
@@ -289,6 +293,15 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         # WorkoutData by workout_id — historic picks are reused from here so
         # toggling between rides doesn't burn a Wahoo API call each time.
         self._detail_cache: dict[int, WorkoutData] = {}
+        # Lifetime totals are persisted per-entry so they survive HA restarts
+        # without re-counting workouts. The store is keyed off the entry id
+        # to keep multi-account installs isolated.
+        self._totals: LifetimeTotals = LifetimeTotals()
+        self._totals_store: Store = Store(
+            hass,
+            _TOTALS_SCHEMA_VERSION,
+            f"{DOMAIN}_totals_{entry.entry_id}",
+        )
 
     @property
     def _geojson_dir(self) -> Path:
@@ -298,6 +311,53 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
     def selected_workout_id(self) -> int | None:
         """Currently pinned workout id, or ``None`` when following latest."""
         return self._selected_workout_id
+
+    @property
+    def totals(self) -> LifetimeTotals:
+        """Lifetime totals accumulator. Survives HA restarts via the store."""
+        return self._totals
+
+    async def async_load_totals(self) -> None:
+        """Rehydrate lifetime totals from the persistent store at setup time."""
+        try:
+            payload = await self._totals_store.async_load()
+        except Exception as err:  # noqa: BLE001 — load failure must not block setup
+            _LOGGER.warning("Could not load lifetime totals: %s", err)
+            return
+        self._totals = LifetimeTotals.from_storage(payload)
+        if self._totals.workout_count:
+            _LOGGER.debug(
+                "Loaded lifetime totals: %d workouts, %.1f km",
+                self._totals.workout_count,
+                self._totals.distance_km,
+            )
+
+    async def _record_totals(self, data: WorkoutData) -> bool:
+        """Feed ``data`` into the lifetime totals if its id hasn't been seen.
+
+        Returns ``True`` when the workout was a fresh contribution. Persists
+        the updated state asynchronously so a crash before the next save
+        loses at most one workout's worth of accumulation.
+        """
+        if data.workout_id is None:
+            return False
+        added = self._totals.add(
+            WorkoutContribution(
+                workout_id=data.workout_id,
+                distance_km=data.distance_km,
+                ascent_m=data.ascent_m,
+                duration_min=data.duration_min,
+                calories_kcal=data.calories_kcal,
+                work_kj=data.work_kj,
+                tss=data.tss,
+            )
+        )
+        if added:
+            try:
+                await self._totals_store.async_save(self._totals.as_storage())
+            except Exception as err:  # noqa: BLE001 — save failure must not break poll
+                _LOGGER.warning("Could not persist lifetime totals: %s", err)
+        return added
 
     async def async_select_workout(self, workout_id: int | None) -> None:
         """Pin the sensors and map to ``workout_id`` (or ``None`` for latest).
@@ -373,6 +433,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             data = _build_workout_data(detail)
             data.recent = recent
             data.selected_workout_id = self._selected_workout_id
+            await self._record_totals(data)
 
             # Render the track on first sight or when the previously rendered
             # file disappeared (user cleared www/). Indoor/manual rides skip
@@ -482,6 +543,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             return None
 
         data = _build_workout_data(detail)
+        await self._record_totals(data)
         if data.manual or data.indoor or not data.file_url:
             _LOGGER.debug(
                 "Workout %s has no renderable track (indoor=%s manual=%s file_url=%s)",
@@ -494,11 +556,14 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         return await self._render(workout_id, data.file_url)
 
     async def async_backfill_recent(self, count: int = BACKFILL_COUNT) -> int:
-        """Render up to ``count`` most-recent outdoor workouts that aren't on disk.
+        """Render + record-totals over the last ``count`` workouts.
 
-        Returns the number of newly rendered tracks. Listing call counts
-        against the Wahoo rate limit; detail calls only happen for workouts
-        whose GeoJSON is missing. Auth failures bubble up so HA can reauth.
+        Returns the number of newly rendered tracks. The detail call (the only
+        rate-limited part) runs at most once per workout that's still missing
+        from the lifetime totals OR from disk — already-rendered + already-
+        accumulated workouts cost zero API quota on subsequent restarts. Auth
+        failures bubble up so HA can reauth.
+
         Also refreshes the picker manifest with whatever the listing returned
         so the viewer sees the historic rides even before the next poll runs.
         """
@@ -515,11 +580,28 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             workout_id = workout.get("id")
             if workout_id is None:
                 continue
-            if await self.hass.async_add_executor_job(_has_geojson, self._geojson_dir, workout_id):
+
+            geojson_exists = await self.hass.async_add_executor_job(
+                _has_geojson, self._geojson_dir, workout_id
+            )
+            totals_recorded = workout_id in self._totals.workouts
+            if geojson_exists and totals_recorded:
                 continue
-            url = await self.async_render_workout(workout_id)
-            if url is not None:
-                rendered += 1
+
+            try:
+                detail = await self._api.async_get_workout(workout_id)
+            except WahooApiError as err:
+                _LOGGER.warning("Backfill detail fetch for %s failed: %s", workout_id, err)
+                continue
+
+            data = _build_workout_data(detail)
+            if not totals_recorded:
+                await self._record_totals(data)
+
+            if not geojson_exists and data.file_url and not data.manual and not data.indoor:
+                url = await self._render(data.workout_id, data.file_url)
+                if url is not None:
+                    rendered += 1
 
         recent = await self.hass.async_add_executor_job(
             _build_recent_from_listing, workouts, self._geojson_dir

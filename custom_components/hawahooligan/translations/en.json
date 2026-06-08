@@ -42,7 +42,14 @@
       "heart_rate_avg": { "name": "Average heart rate" },
       "cadence_avg": { "name": "Average cadence" },
       "calories": { "name": "Calories" },
-      "work": { "name": "Work" }
+      "work": { "name": "Work" },
+      "lifetime_distance": { "name": "Lifetime distance" },
+      "lifetime_ascent": { "name": "Lifetime ascent" },
+      "lifetime_duration": { "name": "Lifetime duration" },
+      "lifetime_calories": { "name": "Lifetime calories" },
+      "lifetime_work": { "name": "Lifetime work" },
+      "lifetime_tss": { "name": "Lifetime TSS" },
+      "lifetime_workouts": { "name": "Lifetime workouts" }
     }
   },
   "services": {

@@ -29,6 +29,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from . import HawahooliganConfigEntry
 from .const import DOMAIN
 from .coordinator import WahooCoordinator, WorkoutData
+from .totals import LifetimeTotals
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -159,6 +160,77 @@ SUMMARY_SENSORS: tuple[WahooSensorDescription, ...] = (
 )
 
 
+@dataclass(frozen=True, kw_only=True)
+class WahooLifetimeSensorDescription(SensorEntityDescription):
+    """Describe a lifetime-total sensor and how to project ``LifetimeTotals``."""
+
+    value_fn: Callable[[LifetimeTotals], float | int]
+
+
+# Lifetime totals — ``state_class=total_increasing`` makes the HA recorder
+# treat these as monotonically growing meters. Users can drop a utility_meter
+# helper on top to get week / month / year buckets without any extra Python.
+LIFETIME_SENSORS: tuple[WahooLifetimeSensorDescription, ...] = (
+    WahooLifetimeSensorDescription(
+        key="lifetime_distance",
+        translation_key="lifetime_distance",
+        device_class=SensorDeviceClass.DISTANCE,
+        native_unit_of_measurement=UnitOfLength.KILOMETERS,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=1,
+        value_fn=lambda t: t.distance_km,
+    ),
+    WahooLifetimeSensorDescription(
+        key="lifetime_ascent",
+        translation_key="lifetime_ascent",
+        device_class=SensorDeviceClass.DISTANCE,
+        native_unit_of_measurement=UnitOfLength.METERS,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=0,
+        value_fn=lambda t: t.ascent_m,
+    ),
+    WahooLifetimeSensorDescription(
+        key="lifetime_duration",
+        translation_key="lifetime_duration",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=0,
+        value_fn=lambda t: t.duration_min,
+    ),
+    WahooLifetimeSensorDescription(
+        key="lifetime_calories",
+        translation_key="lifetime_calories",
+        native_unit_of_measurement="kcal",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=0,
+        value_fn=lambda t: t.calories_kcal,
+    ),
+    WahooLifetimeSensorDescription(
+        key="lifetime_work",
+        translation_key="lifetime_work",
+        native_unit_of_measurement=UnitOfEnergy.KILO_JOULE,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=0,
+        value_fn=lambda t: t.work_kj,
+    ),
+    WahooLifetimeSensorDescription(
+        key="lifetime_tss",
+        translation_key="lifetime_tss",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=0,
+        value_fn=lambda t: t.tss,
+    ),
+    WahooLifetimeSensorDescription(
+        key="lifetime_workouts",
+        translation_key="lifetime_workouts",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=0,
+        value_fn=lambda t: t.workout_count,
+    ),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: HawahooliganConfigEntry,
@@ -172,6 +244,10 @@ async def async_setup_entry(
     entities.extend(
         WahooSummarySensor(coordinator, entry.entry_id, description)
         for description in SUMMARY_SENSORS
+    )
+    entities.extend(
+        WahooLifetimeSensor(coordinator, entry.entry_id, description)
+        for description in LIFETIME_SENSORS
     )
     async_add_entities(entities)
 
@@ -265,3 +341,24 @@ class WahooSummarySensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
         if data is None:
             return None
         return self.entity_description.value_fn(data)
+
+
+class WahooLifetimeSensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
+    """Sensor backed by ``WahooCoordinator.totals`` (a :class:`LifetimeTotals`)."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: WahooCoordinator,
+        entry_id: str,
+        description: WahooLifetimeSensorDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = f"{entry_id}_{description.key}"
+        self._attr_device_info = _device_info(entry_id)
+
+    @property
+    def native_value(self) -> float | int:
+        return self.entity_description.value_fn(self.coordinator.totals)

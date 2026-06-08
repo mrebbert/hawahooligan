@@ -119,3 +119,26 @@ views:
             grid_options:
               columns: 12
               rows: auto
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Insgesamt
+            heading_style: title
+            icon: mdi:counter
+          # Lifetime sensors carry state_class=total_increasing — drop a
+          # utility_meter helper on top of any of them via Settings →
+          # Helpers → Utility meter to get monthly / yearly buckets.
+          - type: entities
+            entities:
+              - entity: sensor.hawahooligan_lifetime_workouts
+              - entity: sensor.hawahooligan_lifetime_distance
+              - entity: sensor.hawahooligan_lifetime_ascent
+              - entity: sensor.hawahooligan_lifetime_duration
+              - entity: sensor.hawahooligan_lifetime_calories
+              - entity: sensor.hawahooligan_lifetime_work
+              - entity: sensor.hawahooligan_lifetime_tss
+            state_color: false
+            grid_options:
+              columns: 12
+              rows: auto
