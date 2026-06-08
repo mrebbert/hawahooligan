@@ -1,0 +1,28 @@
+name: Validate
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Daily run catches upstream breakage (a new HA release, HACS schema bump,
+    # hassfest rule change) before the next development push hits CI.
+    - cron: "0 6 * * *"
+
+jobs:
+  hassfest:
+    name: hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    name: HACS validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hacs/action@22.5.0
+        with:
+          category: integration

@@ -1,0 +1,28 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  release:
+    name: Package and attach release archive
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Create release archive
+        # HACS expects a flat zip whose top-level directory matches the
+        # integration's domain (custom_components/<domain>/…). The archive
+        # ships the integration tree only — viewer, manifest, services,
+        # translations included — so users can side-load without HACS too.
+        run: |
+          cd custom_components
+          zip -r ../hawahooligan.zip hawahooligan/
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v3
+        with:
+          files: hawahooligan.zip
