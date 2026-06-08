@@ -1,0 +1,58 @@
+# Example Lovelace view for HAWahooligan.
+#
+# Renders the most recent workout's GPS track via the Leaflet viewer that the
+# integration auto-provisions at /local/hawahooligan/map.html, alongside the
+# summary sensors. No HACS frontend cards required — the iframe and entities
+# cards ship with Home Assistant.
+#
+# Replace the entity-id prefix below if your integration was created with a
+# non-default title. Find the IDs under Settings → Devices & Services →
+# HAWahooligan → entities.
+views:
+  - title: Wahoo
+    path: wahoo
+    icon: mdi:bike
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Letzte Fahrt
+            heading_style: title
+            icon: mdi:map-marker-path
+          - type: iframe
+            url: /local/hawahooligan/map.html
+            aspect_ratio: 75%
+            # To view a specific workout instead of the latest, append its id:
+            # url: /local/hawahooligan/map.html?id=123456
+            grid_options:
+              columns: 12
+              rows: auto
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Werte
+            heading_style: title
+            icon: mdi:chart-bar
+          - type: entities
+            entities:
+              - entity: sensor.hawahooligan_last_workout
+                name: Start
+                secondary_info: last-changed
+              - entity: sensor.hawahooligan_distance
+              - entity: sensor.hawahooligan_duration
+              - entity: sensor.hawahooligan_ascent
+              - entity: sensor.hawahooligan_speed_avg
+              - entity: sensor.hawahooligan_heart_rate_avg
+              - entity: sensor.hawahooligan_cadence_avg
+              - entity: sensor.hawahooligan_power_avg
+              - entity: sensor.hawahooligan_power_np
+              - entity: sensor.hawahooligan_tss
+              - entity: sensor.hawahooligan_calories
+              - entity: sensor.hawahooligan_work
+            state_color: false
+            grid_options:
+              columns: 12
+              rows: auto

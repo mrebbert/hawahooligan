@@ -25,16 +25,17 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import WahooApi, WahooApiError
-from .const import DOMAIN, UPDATE_INTERVAL, is_indoor, workout_type_name
+from .const import (
+    DOMAIN,
+    UPDATE_INTERVAL,
+    WWW_SUBPATH,
+    WWW_URL_PREFIX,
+    is_indoor,
+    workout_type_name,
+)
 from .fit import parse_fit_to_geojson, write_geojson
 
 _LOGGER = logging.getLogger(__name__)
-
-# Directory under <config>/www where we drop the rendered GeoJSON tracks.
-# HA serves <config>/www/ at /local/, so the public URL becomes
-# ``/local/hawahooligan/<workout_id>.geojson``.
-_GEOJSON_SUBPATH = ("www", "hawahooligan")
-_GEOJSON_URL_PREFIX = "/local/hawahooligan"
 
 
 @dataclass(slots=True)
@@ -133,7 +134,7 @@ def _parse_and_write_fit(directory: Path, workout_id: int | str, payload: bytes)
     if feature is None:
         return None
     write_geojson(directory, workout_id, feature)
-    return f"{_GEOJSON_URL_PREFIX}/{workout_id}.geojson"
+    return f"{WWW_URL_PREFIX}/{workout_id}.geojson"
 
 
 class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
@@ -155,7 +156,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
 
     @property
     def _geojson_dir(self) -> Path:
-        return Path(self.hass.config.path(*_GEOJSON_SUBPATH))
+        return Path(self.hass.config.path(*WWW_SUBPATH))
 
     async def _async_update_data(self) -> WorkoutData | None:
         try:

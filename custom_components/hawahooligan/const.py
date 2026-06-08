@@ -26,6 +26,12 @@ SCOPES: Final = "user_read workouts_read offline_data"
 # the Wahoo Sandbox rate limit (250/day).
 UPDATE_INTERVAL: Final = timedelta(minutes=15)
 
+# Where we drop generated artifacts (GeoJSON tracks + the Leaflet viewer):
+# ``<config>/www/hawahooligan/``. HA serves ``<config>/www/`` under
+# ``/local/``, so the public URLs become ``/local/hawahooligan/<file>``.
+WWW_SUBPATH: Final[tuple[str, ...]] = ("www", "hawahooligan")
+WWW_URL_PREFIX: Final = "/local/hawahooligan"
+
 # Workout-type table from the Wahoo Cloud API "Data Types" section. The
 # `location` value is the source of truth for indoor/outdoor classification —
 # robuster than a handpicked ID set when Wahoo extends the table.
