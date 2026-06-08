@@ -67,6 +67,24 @@ SUMMARY_SENSORS: tuple[WahooSensorDescription, ...] = (
         value_fn=lambda d: d.duration_min,
     ),
     WahooSensorDescription(
+        key="duration_total",
+        translation_key="duration_total",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        value_fn=lambda d: d.duration_total_min,
+    ),
+    WahooSensorDescription(
+        key="duration_paused",
+        translation_key="duration_paused",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        value_fn=lambda d: d.duration_paused_min,
+    ),
+    WahooSensorDescription(
         key="speed_avg",
         translation_key="speed_avg",
         device_class=SensorDeviceClass.SPEED,
@@ -207,6 +225,9 @@ class WahooLastWorkoutSensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
             "fitness_app_id": data.fitness_app_id,
             "starts": data.starts,
             "geojson_url": data.geojson_url,
+            "route_id": data.route_id,
+            "plan_id": data.plan_id,
+            "plan_ids": data.plan_ids,
             "recent": [
                 {
                     "id": r.id,

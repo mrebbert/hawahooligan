@@ -88,10 +88,19 @@ class WorkoutData:
     fitness_app_id: int | None = None
     file_url: str | None = None
     geojson_url: str | None = None
+    # Workout-level metadata exposed only as attributes on the headline
+    # sensor — useful for automations ("trigger when ride uses Route X")
+    # and for the Phase-5 routes/plans bridge. Wahoo omits these on
+    # workouts with no plan / no route, so all three default to ``None``.
+    route_id: int | None = None
+    plan_id: int | None = None
+    plan_ids: list[int] = field(default_factory=list)
     # Summary fields (units already applied)
     distance_km: float | None = None
     ascent_m: float | None = None
     duration_min: float | None = None
+    duration_total_min: float | None = None
+    duration_paused_min: float | None = None
     speed_avg_kmh: float | None = None
     power_avg_w: float | None = None
     power_np_w: float | None = None
@@ -127,8 +136,19 @@ def _build_workout_data(workout: dict[str, Any]) -> WorkoutData:
 
     distance_m = _as_float(summary.get("distance_accum"))
     duration_s = _as_float(summary.get("duration_active_accum"))
+    duration_total_s = _as_float(summary.get("duration_total_accum"))
+    duration_paused_s = _as_float(summary.get("duration_paused_accum"))
     speed_ms = _as_float(summary.get("speed_avg"))
     work_j = _as_float(summary.get("work_accum"))
+
+    plan_ids_raw = workout.get("plan_ids") or []
+    plan_ids: list[int] = []
+    if isinstance(plan_ids_raw, list):
+        for pid in plan_ids_raw:
+            try:
+                plan_ids.append(int(pid))
+            except (TypeError, ValueError):
+                continue
 
     return WorkoutData(
         workout_id=workout.get("id"),
@@ -142,9 +162,14 @@ def _build_workout_data(workout: dict[str, Any]) -> WorkoutData:
         time_zone=workout.get("time_zone") or summary.get("time_zone"),
         fitness_app_id=workout.get("fitness_app_id"),
         file_url=file_obj.get("url"),
+        route_id=workout.get("route_id"),
+        plan_id=workout.get("plan_id"),
+        plan_ids=plan_ids,
         distance_km=distance_m / 1000.0 if distance_m is not None else None,
         ascent_m=_as_float(summary.get("ascent_accum")),
         duration_min=duration_s / 60.0 if duration_s is not None else None,
+        duration_total_min=(duration_total_s / 60.0 if duration_total_s is not None else None),
+        duration_paused_min=(duration_paused_s / 60.0 if duration_paused_s is not None else None),
         speed_avg_kmh=speed_ms * 3.6 if speed_ms is not None else None,
         power_avg_w=_as_float(summary.get("power_avg")),
         power_np_w=_as_float(summary.get("power_bike_np_last")),

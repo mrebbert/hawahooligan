@@ -49,6 +49,8 @@ views:
                 secondary_info: last-changed
               - entity: sensor.hawahooligan_distance
               - entity: sensor.hawahooligan_duration
+              - entity: sensor.hawahooligan_duration_total
+              - entity: sensor.hawahooligan_duration_paused
               - entity: sensor.hawahooligan_ascent
               - entity: sensor.hawahooligan_speed_avg
               - entity: sensor.hawahooligan_heart_rate_avg
