@@ -32,7 +32,7 @@
       "last_workout": { "name": "Last workout" },
       "distance": { "name": "Distance" },
       "ascent": { "name": "Ascent" },
-      "duration": { "name": "Active duration" },
+      "duration": { "name": "Duration" },
       "duration_total": { "name": "Total duration" },
       "duration_paused": { "name": "Paused duration" },
       "speed_avg": { "name": "Average speed" },
