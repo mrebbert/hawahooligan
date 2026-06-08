@@ -1,0 +1,178 @@
+<!doctype html>
+<!--
+  HAWahooligan track viewer (provisioned to <config>/www/hawahooligan/map.html).
+  Standalone — only depends on Leaflet from a CDN. Embed via a Lovelace
+  iframe-card pointed at /local/hawahooligan/map.html. Append ?id=<workout_id>
+  to view a specific workout; without the query parameter the page renders
+  /local/hawahooligan/latest.geojson, which the integration keeps updated.
+
+  HAWahooligan-Viewer-Version: 1
+  Bump that version line in custom_components/hawahooligan/web/map.html when
+  you ship breaking changes — the integration re-provisions the file
+  whenever the version stamp in <config>/www/hawahooligan/map.html differs
+  from the packaged one. Delete the version comment in your local copy to
+  pin it against future updates.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HAWahooligan track</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <style>
+      html,
+      body,
+      #map {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        width: 100%;
+        background: #f5f6f8;
+        color: #1f1f1f;
+        font-family:
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+      }
+      #status {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        z-index: 1000;
+        padding: 6px 10px;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.9);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+        font-size: 13px;
+        pointer-events: none;
+      }
+      #status.hidden {
+        display: none;
+      }
+      #status.error {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="status">Loading track…</div>
+    <div id="map"></div>
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script>
+      (() => {
+        const map = L.map("map", {
+          zoomControl: true,
+          attributionControl: true,
+        }).setView([51.0, 10.0], 4);
+
+        L.tileLayer(
+          "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+          {
+            maxZoom: 19,
+            attribution:
+              '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+          },
+        ).addTo(map);
+
+        const status = document.getElementById("status");
+        const setStatus = (text, isError = false) => {
+          if (!text) {
+            status.classList.add("hidden");
+            return;
+          }
+          status.classList.remove("hidden");
+          status.classList.toggle("error", isError);
+          status.textContent = text;
+        };
+
+        const params = new URLSearchParams(window.location.search);
+        const id = params.get("id");
+        const trackUrl = id
+          ? `/local/hawahooligan/${encodeURIComponent(id)}.geojson`
+          : "/local/hawahooligan/latest.geojson";
+
+        // Cache-bust so HA's static-file cache doesn't pin an old track when
+        // the coordinator rewrites latest.geojson after a new ride.
+        const cacheBuster = `?t=${Date.now()}`;
+
+        fetch(`${trackUrl}${cacheBuster}`, { credentials: "same-origin" })
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+            return response.json();
+          })
+          .then((feature) => {
+            const layer = L.geoJSON(feature, {
+              style: {
+                color: "#1e88e5",
+                weight: 4,
+                opacity: 0.9,
+              },
+            }).addTo(map);
+
+            const coords =
+              feature && feature.geometry && Array.isArray(feature.geometry.coordinates)
+                ? feature.geometry.coordinates
+                : [];
+            if (coords.length >= 2) {
+              const [startLon, startLat] = coords[0];
+              const [endLon, endLat] = coords[coords.length - 1];
+              L.circleMarker([startLat, startLon], {
+                radius: 7,
+                color: "#fff",
+                weight: 2,
+                fillColor: "#22c55e",
+                fillOpacity: 1,
+              })
+                .bindTooltip("Start", { permanent: false })
+                .addTo(map);
+              L.circleMarker([endLat, endLon], {
+                radius: 7,
+                color: "#fff",
+                weight: 2,
+                fillColor: "#ef4444",
+                fillOpacity: 1,
+              })
+                .bindTooltip("End", { permanent: false })
+                .addTo(map);
+            }
+
+            const bounds = layer.getBounds();
+            if (bounds.isValid()) {
+              map.fitBounds(bounds, { padding: [24, 24] });
+            }
+
+            const pointCount =
+              feature && feature.properties && feature.properties.point_count;
+            setStatus(
+              pointCount
+                ? `${pointCount.toLocaleString()} GPS points`
+                : `${coords.length.toLocaleString()} GPS points`,
+            );
+            window.setTimeout(() => setStatus(null), 4000);
+          })
+          .catch((err) => {
+            console.error("HAWahooligan map failed:", err);
+            setStatus(
+              id
+                ? `Could not load workout ${id}: ${err.message}`
+                : `No track yet (${err.message})`,
+              true,
+            );
+          });
+      })();
+    </script>
+  </body>
+</html>

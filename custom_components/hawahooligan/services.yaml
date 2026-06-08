@@ -1,0 +1,32 @@
+render_workout:
+  name: Render workout track
+  description: >-
+    Fetch a Wahoo workout by id and render its FIT file to a GeoJSON track
+    under <config>/www/hawahooligan/<id>.geojson. Useful for backfilling
+    historic rides older than the first-setup window.
+  fields:
+    workout_id:
+      name: Workout ID
+      description: Numeric Wahoo workout id (visible in the Wahoo web app URL).
+      required: true
+      example: "12345678"
+      selector:
+        text:
+    config_entry_id:
+      name: Config entry
+      description: >-
+        Only required when more than one Wahoo account is configured —
+        identifies which account's directory to render into.
+      required: false
+      selector:
+        config_entry:
+          integration: hawahooligan
+    force:
+      name: Force re-render
+      description: >-
+        Re-download the FIT and overwrite the existing GeoJSON even if a
+        file for this workout id already exists.
+      required: false
+      default: false
+      selector:
+        boolean:

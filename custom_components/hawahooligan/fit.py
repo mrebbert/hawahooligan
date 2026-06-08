@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import warnings
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -46,15 +47,21 @@ def parse_fit_to_geojson(payload: bytes) -> dict[str, Any] | None:
     """
     coordinates: list[tuple[float, float]] = []
     try:
-        with fitdecode.FitReader(BytesIO(payload)) as reader:
-            for frame in reader:
-                if not isinstance(frame, fitdecode.FitDataMessage):
-                    continue
-                if frame.name != "record":
-                    continue
-                point = _coords_from_record(frame)
-                if point is not None:
-                    coordinates.append(point)
+        # Wahoo FITs often carry developer-defined fields whose schema
+        # fitdecode flags as missing ``native_field_num``. The decoder
+        # gracefully inserts placeholder dev data, so the warning is
+        # informational; we mute it to keep the HA log clean.
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning, module=r"fitdecode\..*")
+            with fitdecode.FitReader(BytesIO(payload)) as reader:
+                for frame in reader:
+                    if not isinstance(frame, fitdecode.FitDataMessage):
+                        continue
+                    if frame.name != "record":
+                        continue
+                    point = _coords_from_record(frame)
+                    if point is not None:
+                        coordinates.append(point)
     except fitdecode.FitError as err:
         _LOGGER.warning("FIT decoding failed: %s", err)
         return None

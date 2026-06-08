@@ -26,6 +26,25 @@ SCOPES: Final = "user_read workouts_read offline_data"
 # the Wahoo Sandbox rate limit (250/day).
 UPDATE_INTERVAL: Final = timedelta(minutes=15)
 
+# Where we drop generated artifacts (GeoJSON tracks + the Leaflet viewer):
+# ``<config>/www/hawahooligan/``. HA serves ``<config>/www/`` under
+# ``/local/``, so the public URLs become ``/local/hawahooligan/<file>``.
+WWW_SUBPATH: Final[tuple[str, ...]] = ("www", "hawahooligan")
+WWW_URL_PREFIX: Final = "/local/hawahooligan"
+
+# How many of the user's most recent workouts to backfill on first setup.
+# At 1 listing call + up to 20 detail calls this fits comfortably inside the
+# Wahoo Sandbox 5-min window (25 calls). FIT downloads from the CDN don't
+# count against the rate limit. Backfill is idempotent — workouts whose
+# GeoJSON already exists on disk are skipped, so subsequent restarts just
+# pay the listing call.
+BACKFILL_COUNT: Final = 20
+
+# Service exposed to Home Assistant for on-demand rendering of an arbitrary
+# workout id. Useful for backfilling tracks older than ``BACKFILL_COUNT`` or
+# re-rendering after a viewer bump.
+SERVICE_RENDER_WORKOUT: Final = "render_workout"
+
 # Workout-type table from the Wahoo Cloud API "Data Types" section. The
 # `location` value is the source of truth for indoor/outdoor classification —
 # robuster than a handpicked ID set when Wahoo extends the table.

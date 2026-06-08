@@ -9,7 +9,9 @@ That keeps the integration comfortably within the Wahoo Sandbox rate limits
 even at 15-minute polling cadence (~96 calls/day). When a new outdoor workout
 with a FIT file URL appears, the coordinator also pulls the FIT, converts it
 to GeoJSON and drops the resulting LineString under ``<config>/www/`` so the
-Lovelace map card can render the track.
+Lovelace map card can render the track. The same render path is exposed via
+:meth:`async_render_workout` for the backfill loop (initial setup, last N
+historic rides) and the ``hawahooligan.render_workout`` service.
 """
 
 from __future__ import annotations
@@ -25,16 +27,18 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import WahooApi, WahooApiError
-from .const import DOMAIN, UPDATE_INTERVAL, is_indoor, workout_type_name
+from .const import (
+    BACKFILL_COUNT,
+    DOMAIN,
+    UPDATE_INTERVAL,
+    WWW_SUBPATH,
+    WWW_URL_PREFIX,
+    is_indoor,
+    workout_type_name,
+)
 from .fit import parse_fit_to_geojson, write_geojson
 
 _LOGGER = logging.getLogger(__name__)
-
-# Directory under <config>/www where we drop the rendered GeoJSON tracks.
-# HA serves <config>/www/ at /local/, so the public URL becomes
-# ``/local/hawahooligan/<workout_id>.geojson``.
-_GEOJSON_SUBPATH = ("www", "hawahooligan")
-_GEOJSON_URL_PREFIX = "/local/hawahooligan"
 
 
 @dataclass(slots=True)
@@ -126,14 +130,23 @@ def _build_workout_data(workout: dict[str, Any]) -> WorkoutData:
 def _parse_and_write_fit(directory: Path, workout_id: int | str, payload: bytes) -> str | None:
     """Blocking helper: decode FIT, write GeoJSON, return public URL or ``None``.
 
-    Lives at module scope so the executor can pickle / run it without dragging
-    the coordinator instance along.
+    Lives at module scope so the executor can run it without dragging the
+    coordinator instance along.
     """
     feature = parse_fit_to_geojson(payload)
     if feature is None:
         return None
     write_geojson(directory, workout_id, feature)
-    return f"{_GEOJSON_URL_PREFIX}/{workout_id}.geojson"
+    return f"{WWW_URL_PREFIX}/{workout_id}.geojson"
+
+
+def _geojson_path(directory: Path, workout_id: int | str) -> Path:
+    return directory / f"{workout_id}.geojson"
+
+
+def _has_geojson(directory: Path, workout_id: int | str) -> bool:
+    """Blocking filesystem check — caller dispatches via executor."""
+    return _geojson_path(directory, workout_id).is_file()
 
 
 class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
@@ -155,7 +168,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
 
     @property
     def _geojson_dir(self) -> Path:
-        return Path(self.hass.config.path(*_GEOJSON_SUBPATH))
+        return Path(self.hass.config.path(*WWW_SUBPATH))
 
     async def _async_update_data(self) -> WorkoutData | None:
         try:
@@ -190,17 +203,17 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
 
         data = _build_workout_data(detail)
 
-        # Only worth trying when this is a fresh workout id with a track-bearing
-        # source: outdoor + non-manual + a file URL. Indoor / manual entries are
-        # the documented "no GPS" case and intentionally skipped silently.
-        if (
-            latest_id != self._last_id
-            and data.workout_id is not None
-            and data.file_url
-            and not data.manual
-            and not data.indoor
-        ):
-            data.geojson_url = await self._build_geojson(data.workout_id, data.file_url)
+        # Render the track on first sight or when the previously rendered
+        # file disappeared (user cleared www/). Indoor/manual rides skip
+        # silently — they don't have GPS to render.
+        if data.workout_id is not None and data.file_url and not data.manual and not data.indoor:
+            already_rendered = await self.hass.async_add_executor_job(
+                _has_geojson, self._geojson_dir, data.workout_id
+            )
+            if not already_rendered or latest_id != self._last_id:
+                data.geojson_url = await self._render(data.workout_id, data.file_url)
+            else:
+                data.geojson_url = f"{WWW_URL_PREFIX}/{data.workout_id}.geojson"
 
         self._last_id = latest_id
         self._last_summary_was_null = (
@@ -208,7 +221,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         )
         return data
 
-    async def _build_geojson(self, workout_id: int | str, file_url: str) -> str | None:
+    async def _render(self, workout_id: int | str, file_url: str) -> str | None:
         """Download the FIT for ``workout_id`` and write the GeoJSON track.
 
         Errors here never break the update — at worst the headline sensors fill
@@ -228,3 +241,65 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         except OSError as err:
             _LOGGER.warning("FIT GeoJSON write for workout %s failed: %s", workout_id, err)
             return None
+
+    async def async_render_workout(
+        self, workout_id: int | str, *, force: bool = False
+    ) -> str | None:
+        """Render the GeoJSON for an arbitrary Wahoo workout id.
+
+        Used both by the backfill loop (no-op when the file is already on
+        disk) and the ``render_workout`` service (``force=True`` so users can
+        re-render after a viewer/track bump).
+
+        Returns the public ``/local/...`` URL when a track was produced,
+        ``None`` when there's nothing to render (indoor, manual, no GPS).
+        """
+        if not force:
+            exists = await self.hass.async_add_executor_job(
+                _has_geojson, self._geojson_dir, workout_id
+            )
+            if exists:
+                return f"{WWW_URL_PREFIX}/{workout_id}.geojson"
+
+        try:
+            detail = await self._api.async_get_workout(workout_id)
+        except WahooApiError as err:
+            _LOGGER.warning("Could not fetch workout %s for render: %s", workout_id, err)
+            return None
+
+        data = _build_workout_data(detail)
+        if data.manual or data.indoor or not data.file_url:
+            _LOGGER.debug(
+                "Workout %s has no renderable track (indoor=%s manual=%s file_url=%s)",
+                workout_id,
+                data.indoor,
+                data.manual,
+                bool(data.file_url),
+            )
+            return None
+        return await self._render(workout_id, data.file_url)
+
+    async def async_backfill_recent(self, count: int = BACKFILL_COUNT) -> int:
+        """Render up to ``count`` most-recent outdoor workouts that aren't on disk.
+
+        Returns the number of newly rendered tracks. Listing call counts
+        against the Wahoo rate limit; detail calls only happen for workouts
+        whose GeoJSON is missing. Auth failures bubble up so HA can reauth.
+        """
+        try:
+            listing = await self._api.async_get_workouts(per_page=count)
+        except WahooApiError as err:
+            _LOGGER.warning("Backfill listing call failed: %s", err)
+            return 0
+
+        rendered = 0
+        for workout in listing.get("workouts") or []:
+            workout_id = workout.get("id")
+            if workout_id is None:
+                continue
+            if await self.hass.async_add_executor_job(_has_geojson, self._geojson_dir, workout_id):
+                continue
+            url = await self.async_render_workout(workout_id)
+            if url is not None:
+                rendered += 1
+        return rendered

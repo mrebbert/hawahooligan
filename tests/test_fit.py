@@ -129,6 +129,44 @@ class TestParseFitToGeojson:
         with patch.object(fitdecode, "FitReader", lambda _: _BoomReader([])):
             assert parse_fit_to_geojson(b"\x00") is None
 
+    def test_suppresses_fitdecode_user_warnings(self, patched_message_type: None) -> None:
+        """Wahoo FITs trigger fitdecode UserWarnings about dev fields; mute them."""
+        import warnings as _warnings
+
+        class _WarningReader(_FakeReader):
+            def __iter__(self):
+                # Emit *as* fitdecode would: the filter in fit.py keys on the
+                # warning's ``module`` attribute (Python module name), so we
+                # must spoof both filename and module to mimic the real call.
+                _warnings.warn_explicit(
+                    "'field \"native_field_num\" (idx #0) not found …'",
+                    UserWarning,
+                    fitdecode.reader.__file__,
+                    909,
+                    module="fitdecode.reader",
+                )
+                yield from self._frames
+
+        frames = [
+            _FakeFrame(
+                "record",
+                {"position_lat": _semicircle(0.0), "position_long": _semicircle(0.0)},
+            ),
+            _FakeFrame(
+                "record",
+                {"position_lat": _semicircle(1.0), "position_long": _semicircle(1.0)},
+            ),
+        ]
+        with (
+            patch.object(fitdecode, "FitReader", lambda _: _WarningReader(frames)),
+            _warnings.catch_warnings(record=True) as captured,
+        ):
+            _warnings.simplefilter("always")
+            feature = parse_fit_to_geojson(b"\x00")
+
+        assert feature is not None
+        assert not [w for w in captured if "native_field_num" in str(w.message)]
+
 
 class TestWriteGeojson:
     def test_writes_per_workout_and_latest_files(self, tmp_path: Path) -> None:
