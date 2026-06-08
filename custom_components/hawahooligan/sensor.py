@@ -128,7 +128,11 @@ SUMMARY_SENSORS: tuple[WahooSensorDescription, ...] = (
     WahooSensorDescription(
         key="work",
         translation_key="work",
-        device_class=SensorDeviceClass.ENERGY,
+        # No device_class=ENERGY here: HA's ENERGY class expects accumulating
+        # state_class (``total`` / ``total_increasing``), but ``work_kj`` is a
+        # per-workout snapshot that resets to a fresh value with every ride.
+        # Keeping the unit makes it readable; declaring it as energy would
+        # mis-feed the long-term-statistics pipeline.
         native_unit_of_measurement=UnitOfEnergy.KILO_JOULE,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=0,
