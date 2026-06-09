@@ -86,6 +86,32 @@
           "description": "Nur erforderlich, wenn mehr als ein Wahoo-Konto konfiguriert ist."
         }
       }
+    },
+    "full_backfill": {
+      "name": "Vollständige Historie nachladen",
+      "description": "Iteriert über die gesamte Wahoo-Workout-Historie und füttert die Lifetime-Totals. Rate-Limit-bewusst. Sendet pro Seite ein hawahooligan_full_backfill_progress-Ereignis.",
+      "fields": {
+        "with_tracks": {
+          "name": "Tracks mitrendern",
+          "description": "Lädt für jedes Outdoor-Workout zusätzlich die FIT-Datei und rendert sie als GeoJSON. Mehr Speicherbedarf, aber keine zusätzlichen API-Calls."
+        },
+        "max_pages": {
+          "name": "Max. Seiten",
+          "description": "Sicherheitsgrenze — Abbruch nach dieser Seitenzahl."
+        },
+        "max_calls_per_window": {
+          "name": "Max. Calls pro Fenster",
+          "description": "Rate-Limit-Budget. Sandbox = 25 / 5 min."
+        },
+        "window_seconds": {
+          "name": "Fensterlänge (Sekunden)",
+          "description": "Länge des Rolling-Fensters in Sekunden. Wahoo nutzt 300 s."
+        },
+        "config_entry_id": {
+          "name": "Konfigurationseintrag",
+          "description": "Nur erforderlich, wenn mehr als ein Wahoo-Konto konfiguriert ist."
+        }
+      }
     }
   }
 }

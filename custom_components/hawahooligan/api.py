@@ -79,13 +79,20 @@ class WahooApi:
         """Return ``GET /v1/user`` — used as unique_id source for the config entry."""
         return await self._request("GET", "/v1/user")
 
-    async def async_get_workouts(self, per_page: int = 1) -> dict[str, Any]:
-        """Return ``GET /v1/workouts?per_page=N`` (sorted by ``starts`` desc).
+    async def async_get_workouts(
+        self, per_page: int = 1, page: int | None = None
+    ) -> dict[str, Any]:
+        """Return ``GET /v1/workouts?per_page=N&page=M`` (sorted by ``starts`` desc).
 
         ``workout_summary`` is frequently ``null`` in the listing — call
         :meth:`async_get_workout` to fetch the full object with the summary.
+        Pass ``page`` to paginate beyond the first ``per_page`` workouts
+        (full-history backfill); without it Wahoo returns page 1.
         """
-        return await self._request("GET", "/v1/workouts", params={"per_page": per_page})
+        params: dict[str, Any] = {"per_page": per_page}
+        if page is not None:
+            params["page"] = page
+        return await self._request("GET", "/v1/workouts", params=params)
 
     async def async_get_workout(self, workout_id: int | str) -> dict[str, Any]:
         """Return ``GET /v1/workouts/:id`` (always includes ``workout_summary``)."""

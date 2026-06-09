@@ -55,6 +55,35 @@ SERVICE_RENDER_WORKOUT: Final = "render_workout"
 # workout — passing ``workout_id=None`` resets back to that behaviour.
 SERVICE_SELECT_WORKOUT: Final = "select_workout"
 
+# Opt-in service that paginates all the way through the user's Wahoo history.
+# Rate-limit-heavy — sandbox is 25 calls / 5 min, so the default budget below
+# stays well under that ceiling. Users on the production tier (200 / 5 min)
+# can pass a higher ``max_calls_per_window`` in the service call.
+SERVICE_FULL_BACKFILL: Final = "full_backfill"
+
+# HA event fired once per processed page so users can wire a notification or
+# a progress badge. Payload keys: ``entry_id``, ``page``, ``processed``,
+# ``added``, ``done``.
+EVENT_BACKFILL_PROGRESS: Final = "hawahooligan_full_backfill_progress"
+
+# How many workouts the listing call returns per page during the full
+# backfill. Higher is faster (fewer listing calls) but each listing entry
+# still triggers a detail call when the workout id is new — so this knob
+# mostly affects how often we wait on rate-limit windows.
+FULL_BACKFILL_PER_PAGE: Final = 50
+
+# Sandbox-safe defaults for the rolling-window budget. Wahoo's Sandbox tier
+# caps detail calls at 25 per 5-minute window; with a budget of 20 per
+# 300 s window we have headroom for the regular 15-min poll to still slip
+# through without tripping a 429.
+FULL_BACKFILL_DEFAULT_BUDGET: Final = 20
+FULL_BACKFILL_DEFAULT_WINDOW_SECONDS: Final = 300
+
+# Safety guard: stop after this many pages even if the API keeps returning
+# non-empty results. 200 × 50 = 10 000 workouts upper bound — far above any
+# realistic Wahoo history.
+FULL_BACKFILL_MAX_PAGES: Final = 200
+
 # Size of the rolling "recent workouts" window the coordinator keeps in
 # ``WorkoutData.recent`` and exports to the picker manifest. Same value as
 # ``BACKFILL_COUNT`` by design: every workout the picker can pick has a

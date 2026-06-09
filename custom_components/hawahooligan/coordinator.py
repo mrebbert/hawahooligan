@@ -32,6 +32,11 @@ from .api import WahooApi, WahooApiError
 from .const import (
     BACKFILL_COUNT,
     DOMAIN,
+    EVENT_BACKFILL_PROGRESS,
+    FULL_BACKFILL_DEFAULT_BUDGET,
+    FULL_BACKFILL_DEFAULT_WINDOW_SECONDS,
+    FULL_BACKFILL_MAX_PAGES,
+    FULL_BACKFILL_PER_PAGE,
     MANIFEST_FILENAME,
     POWER_ZONES_UPDATE_INTERVAL,
     RECENT_COUNT,
@@ -43,6 +48,7 @@ from .const import (
 )
 from .fit import parse_fit_to_geojson, write_geojson
 from .power_zones import PowerZonesData, parse_power_zones
+from .rate_limit import RateLimitBudget
 from .totals import SCHEMA_VERSION as _TOTALS_SCHEMA_VERSION
 from .totals import LifetimeTotals, WorkoutContribution
 
@@ -610,6 +616,147 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         )
         await self._refresh_manifest(recent, self._selected_workout_id)
         return rendered
+
+    async def async_full_backfill(
+        self,
+        *,
+        with_tracks: bool = False,
+        max_pages: int = FULL_BACKFILL_MAX_PAGES,
+        max_calls_per_window: int = FULL_BACKFILL_DEFAULT_BUDGET,
+        window_seconds: float = FULL_BACKFILL_DEFAULT_WINDOW_SECONDS,
+    ) -> int:
+        """Walk the user's whole Wahoo history into lifetime totals.
+
+        Iterates ``GET /v1/workouts?page=N&per_page=FULL_BACKFILL_PER_PAGE``
+        until the API returns an empty list (or ``max_pages`` is reached).
+        For each workout not yet in the totals (and not yet on disk when
+        ``with_tracks=True``), fetches detail and records it.
+
+        Rate-limit budget defaults sit just under the Sandbox 25 / 5-min
+        ceiling — pass higher numbers if your Wahoo app is on the
+        production tier. Auth failures (rotating refresh token, missing
+        scope) bubble up as ``ConfigEntryAuthFailed``; other errors abort
+        the loop and return the count accumulated so far.
+
+        Fires :data:`hawahooligan.const.EVENT_BACKFILL_PROGRESS` after each
+        page so users can wire a notification automation.
+        """
+        budget = RateLimitBudget(max_calls_per_window, window_seconds)
+        added_total = 0
+        processed_total = 0
+
+        try:
+            for page in range(1, max_pages + 1):
+                # Listing call also counts against the budget.
+                await budget.acquire()
+                try:
+                    listing = await self._api.async_get_workouts(
+                        per_page=FULL_BACKFILL_PER_PAGE, page=page
+                    )
+                except WahooApiError as err:
+                    _LOGGER.warning(
+                        "Full backfill listing call failed on page %d: %s",
+                        page,
+                        err,
+                    )
+                    break
+
+                workouts = listing.get("workouts") or []
+                if not workouts:
+                    self._emit_backfill_event(
+                        page=page,
+                        processed=processed_total,
+                        added=added_total,
+                        done=True,
+                    )
+                    _LOGGER.info(
+                        "Full backfill complete after %d page(s): %d workouts added (%d seen)",
+                        page,
+                        added_total,
+                        processed_total,
+                    )
+                    return added_total
+
+                page_added = 0
+                for workout in workouts:
+                    workout_id = workout.get("id")
+                    if workout_id is None:
+                        continue
+                    processed_total += 1
+
+                    needs_detail = workout_id not in self._totals.workouts
+                    if with_tracks and not needs_detail:
+                        needs_detail = not await self.hass.async_add_executor_job(
+                            _has_geojson, self._geojson_dir, workout_id
+                        )
+                    if not needs_detail:
+                        continue
+
+                    await budget.acquire()
+                    try:
+                        detail = await self._api.async_get_workout(workout_id)
+                    except WahooApiError as err:
+                        _LOGGER.warning(
+                            "Full backfill detail fetch for %s failed: %s",
+                            workout_id,
+                            err,
+                        )
+                        continue
+
+                    data = _build_workout_data(detail)
+                    if workout_id not in self._totals.workouts and await self._record_totals(data):
+                        added_total += 1
+                        page_added += 1
+
+                    if with_tracks and data.file_url and not data.manual and not data.indoor:
+                        await self._render(data.workout_id, data.file_url)
+
+                self._emit_backfill_event(
+                    page=page,
+                    processed=processed_total,
+                    added=added_total,
+                    done=False,
+                )
+                _LOGGER.info(
+                    "Full backfill page %d: %d processed, %d new (total %d)",
+                    page,
+                    len(workouts),
+                    page_added,
+                    added_total,
+                )
+
+            _LOGGER.warning(
+                "Full backfill hit the %d-page safety guard before reaching an empty page",
+                max_pages,
+            )
+            self._emit_backfill_event(
+                page=max_pages,
+                processed=processed_total,
+                added=added_total,
+                done=True,
+            )
+        except ConfigEntryAuthFailed:
+            self._emit_backfill_event(
+                page=0,
+                processed=processed_total,
+                added=added_total,
+                done=True,
+            )
+            raise
+
+        return added_total
+
+    def _emit_backfill_event(self, *, page: int, processed: int, added: int, done: bool) -> None:
+        self.hass.bus.async_fire(
+            EVENT_BACKFILL_PROGRESS,
+            {
+                "entry_id": self._entry_id,
+                "page": page,
+                "processed": processed,
+                "added": added,
+                "done": done,
+            },
+        )
 
 
 class WahooPowerZonesCoordinator(DataUpdateCoordinator[PowerZonesData | None]):

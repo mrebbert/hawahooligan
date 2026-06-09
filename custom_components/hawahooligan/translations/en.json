@@ -86,6 +86,32 @@
           "description": "Only required when more than one Wahoo account is configured."
         }
       }
+    },
+    "full_backfill": {
+      "name": "Full-history backfill",
+      "description": "Paginate through the user's entire Wahoo history and feed the lifetime totals. Rate-limit aware. Fires the hawahooligan_full_backfill_progress event after each page.",
+      "fields": {
+        "with_tracks": {
+          "name": "Also render tracks",
+          "description": "Also download and render the FIT file for each outdoor workout. Adds disk usage but no extra API quota."
+        },
+        "max_pages": {
+          "name": "Max pages",
+          "description": "Safety guard — stop after this many pages."
+        },
+        "max_calls_per_window": {
+          "name": "Max calls per window",
+          "description": "Rate-limit budget. Sandbox = 25 / 5-min."
+        },
+        "window_seconds": {
+          "name": "Window seconds",
+          "description": "Rolling-window length in seconds. Wahoo's window is 300 s."
+        },
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "Only required when more than one Wahoo account is configured."
+        }
+      }
     }
   }
 }

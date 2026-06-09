@@ -23,7 +23,15 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
-from .const import DOMAIN, SERVICE_RENDER_WORKOUT, SERVICE_SELECT_WORKOUT
+from .const import (
+    DOMAIN,
+    FULL_BACKFILL_DEFAULT_BUDGET,
+    FULL_BACKFILL_DEFAULT_WINDOW_SECONDS,
+    FULL_BACKFILL_MAX_PAGES,
+    SERVICE_FULL_BACKFILL,
+    SERVICE_RENDER_WORKOUT,
+    SERVICE_SELECT_WORKOUT,
+)
 
 if TYPE_CHECKING:
     from . import HawahooliganConfigEntry
@@ -33,6 +41,10 @@ _LOGGER = logging.getLogger(__name__)
 _ATTR_WORKOUT_ID = "workout_id"
 _ATTR_CONFIG_ENTRY_ID = "config_entry_id"
 _ATTR_FORCE = "force"
+_ATTR_WITH_TRACKS = "with_tracks"
+_ATTR_MAX_PAGES = "max_pages"
+_ATTR_MAX_CALLS_PER_WINDOW = "max_calls_per_window"
+_ATTR_WINDOW_SECONDS = "window_seconds"
 
 _RENDER_SCHEMA = vol.Schema(
     {
@@ -70,6 +82,22 @@ _SELECT_SCHEMA = vol.Schema(
     }
 )
 
+_FULL_BACKFILL_SCHEMA = vol.Schema(
+    {
+        vol.Optional(_ATTR_WITH_TRACKS, default=False): bool,
+        vol.Optional(_ATTR_MAX_PAGES, default=FULL_BACKFILL_MAX_PAGES): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=1000)
+        ),
+        vol.Optional(_ATTR_MAX_CALLS_PER_WINDOW, default=FULL_BACKFILL_DEFAULT_BUDGET): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=200)
+        ),
+        vol.Optional(_ATTR_WINDOW_SECONDS, default=FULL_BACKFILL_DEFAULT_WINDOW_SECONDS): vol.All(
+            vol.Coerce(float), vol.Range(min=10.0, max=3600.0)
+        ),
+        vol.Optional(_ATTR_CONFIG_ENTRY_ID): str,
+    }
+)
+
 
 @callback
 def async_register_services(hass: HomeAssistant) -> None:
@@ -88,12 +116,23 @@ def async_register_services(hass: HomeAssistant) -> None:
             _handle_select_workout,
             schema=_SELECT_SCHEMA,
         )
+    if not hass.services.has_service(DOMAIN, SERVICE_FULL_BACKFILL):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_FULL_BACKFILL,
+            _handle_full_backfill,
+            schema=_FULL_BACKFILL_SCHEMA,
+        )
 
 
 @callback
 def async_unregister_services(hass: HomeAssistant) -> None:
     """Remove HAWahooligan services when the last entry unloads."""
-    for service in (SERVICE_RENDER_WORKOUT, SERVICE_SELECT_WORKOUT):
+    for service in (
+        SERVICE_RENDER_WORKOUT,
+        SERVICE_SELECT_WORKOUT,
+        SERVICE_FULL_BACKFILL,
+    ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)
 
@@ -129,6 +168,42 @@ async def _handle_select_workout(call: ServiceCall) -> None:
     _LOGGER.info(
         "select_workout: pin set to %s",
         "latest" if workout_id is None else workout_id,
+    )
+
+
+async def _handle_full_backfill(call: ServiceCall) -> None:
+    coordinator = _resolve_coordinator(call.hass, call.data.get(_ATTR_CONFIG_ENTRY_ID))
+    with_tracks = bool(call.data.get(_ATTR_WITH_TRACKS, False))
+    max_pages = int(call.data.get(_ATTR_MAX_PAGES, FULL_BACKFILL_MAX_PAGES))
+    max_calls_per_window = int(
+        call.data.get(_ATTR_MAX_CALLS_PER_WINDOW, FULL_BACKFILL_DEFAULT_BUDGET)
+    )
+    window_seconds = float(
+        call.data.get(_ATTR_WINDOW_SECONDS, FULL_BACKFILL_DEFAULT_WINDOW_SECONDS)
+    )
+
+    async def _run() -> None:
+        try:
+            added = await coordinator.async_full_backfill(
+                with_tracks=with_tracks,
+                max_pages=max_pages,
+                max_calls_per_window=max_calls_per_window,
+                window_seconds=window_seconds,
+            )
+        except Exception as err:  # noqa: BLE001 — backfill must not crash HA
+            _LOGGER.warning("Full backfill aborted: %s", err)
+            return
+        _LOGGER.info("Full backfill finished: %d new workouts recorded", added)
+
+    # The loop can take minutes to hours on rate-limited tiers, so fire-and-
+    # forget: the service call returns immediately and progress flows through
+    # the EVENT_BACKFILL_PROGRESS bus event + log messages.
+    call.hass.async_create_background_task(_run(), name="hawahooligan_full_backfill")
+    _LOGGER.info(
+        "full_backfill: kicked off (with_tracks=%s, budget=%d / %.0fs)",
+        with_tracks,
+        max_calls_per_window,
+        window_seconds,
     )
 
 

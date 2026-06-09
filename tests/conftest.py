@@ -2,8 +2,8 @@
 
 These tests target pure helper modules (no Home Assistant runtime). We load
 each helper directly via ``importlib`` and expose it as a top-level module
-(``fit``, ``totals``) so tests can ``from fit import …`` /
-``from totals import …`` without dragging
+(``fit``, ``totals``, ``power_zones``, ``rate_limit_budget``) so tests can
+``from fit import …`` / ``from totals import …`` without dragging
 ``custom_components/hawahooligan/__init__.py`` (and its HA dependencies)
 into the import graph.
 """
@@ -28,3 +28,4 @@ def _load(name: str, path: Path) -> None:
 _load("fit", _ROOT / "fit.py")
 _load("totals", _ROOT / "totals.py")
 _load("power_zones", _ROOT / "power_zones.py")
+_load("rate_limit_budget", _ROOT / "rate_limit.py")

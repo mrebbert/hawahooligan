@@ -56,3 +56,66 @@ select_workout:
       selector:
         config_entry:
           integration: hawahooligan
+
+full_backfill:
+  name: Full-history backfill
+  description: >-
+    Paginate through the user's entire Wahoo history (not just the last 20)
+    and feed the lifetime totals. Rate-limit aware — defaults stay under the
+    Sandbox tier's 25 calls per 5-min ceiling. Fires the
+    hawahooligan_full_backfill_progress event after each page so an
+    automation can show a notification.
+  fields:
+    with_tracks:
+      name: Also render tracks
+      description: >-
+        Also download and render the FIT file for each outdoor workout. Adds
+        a FIT download per workout (doesn't count against the rate limit) and
+        a GeoJSON file under www/hawahooligan/. Disk usage can grow quickly.
+      required: false
+      default: false
+      selector:
+        boolean:
+    max_pages:
+      name: Max pages
+      description: >-
+        Safety guard — stop after this many pages even if the API keeps
+        returning data. 200 pages × 50 workouts/page = 10 000 workouts upper
+        bound.
+      required: false
+      default: 200
+      selector:
+        number:
+          min: 1
+          max: 1000
+          mode: box
+    max_calls_per_window:
+      name: Max calls per window
+      description: >-
+        Rate-limit budget. Sandbox = 25 / 5-min; the default 20 leaves room
+        for the regular 15-min poll to slip through. Production tier (200 /
+        5-min) can run much faster.
+      required: false
+      default: 20
+      selector:
+        number:
+          min: 1
+          max: 200
+          mode: box
+    window_seconds:
+      name: Window seconds
+      description: Rolling-window length in seconds. Wahoo's window is 300 s.
+      required: false
+      default: 300
+      selector:
+        number:
+          min: 10
+          max: 3600
+          mode: box
+    config_entry_id:
+      name: Config entry
+      description: Only required when more than one Wahoo account is configured.
+      required: false
+      selector:
+        config_entry:
+          integration: hawahooligan
