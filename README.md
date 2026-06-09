@@ -229,12 +229,24 @@ instead of `aspect_ratio`).
 <details>
 <summary><strong>Sensor cards show "unavailable"</strong></summary>
 
-Home Assistant derives entity ids from the *translated friendly name*,
-not from the integration's `translation_key`. If your dashboard YAML is
-from an older release of this repo, the example used the wrong ids
-(`_speed_avg` instead of `_average_speed`, …). Re-paste
-[`dashboard/dashboard.yaml`](./dashboard/dashboard.yaml) from the latest
-release.
+Home Assistant derives entity ids from the *translated friendly name* of
+the **active HA locale**, not from the integration's `translation_key`.
+There are two common ways this drifts away from the documented YAML:
+
+1. **Older release of this repo.** The example used the wrong ids
+   (`_speed_avg` instead of `_average_speed`, …). Re-paste
+   [`dashboard/dashboard.yaml`](./dashboard/dashboard.yaml) from the
+   latest release.
+2. **Non-English HA install that observed a sensor for the first time
+   after `de.json` shipped (0.7.0+).** The German friendly name
+   "Kritische Leistung" slugifies to
+   `sensor.hawahooligan_kritische_leistung`, not
+   `sensor.hawahooligan_critical_power`. As of 0.7.7 every sensor
+   ships `suggested_object_id` so new installs always get the
+   English-style slug. Existing entries are pinned by the registry
+   and don't auto-rename; fix them at
+   **Settings → Devices & Services → HAWahooligan → click an entity →
+   ⚙ → Entity ID** and set the documented form.
 
 </details>
 
