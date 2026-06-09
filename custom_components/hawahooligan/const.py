@@ -66,6 +66,16 @@ SERVICE_FULL_BACKFILL: Final = "full_backfill"
 # ``added``, ``done``.
 EVENT_BACKFILL_PROGRESS: Final = "hawahooligan_full_backfill_progress"
 
+# Periodic-cleanup service: prune cached GeoJSON tracks older than a
+# user-supplied age. The cache lives under ``<config>/www/hawahooligan/``
+# and grows unbounded with backfills + render_workout calls — this lets a
+# nightly automation cap it without manual file management.
+SERVICE_CLEANUP_GEOJSON: Final = "cleanup_geojson"
+# Default age threshold (days) when the caller omits ``max_age_days``.
+# 180 covers two seasons of riding so historic comparison still works
+# without paying for stale long-tail tracks.
+CLEANUP_DEFAULT_MAX_AGE_DAYS: Final = 180
+
 # How many workouts the listing call returns per page during the full
 # backfill. Higher is faster (fewer listing calls) but each listing entry
 # still triggers a detail call when the workout id is new — so this knob

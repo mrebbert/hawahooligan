@@ -119,3 +119,31 @@ full_backfill:
       selector:
         config_entry:
           integration: hawahooligan
+
+cleanup_geojson:
+  name: Cleanup cached tracks
+  description: >-
+    Prune GeoJSON track files in the HA config www/hawahooligan/ directory
+    that are older than ``max_age_days`` days. The cache grows unbounded
+    with backfills + render_workout calls; wire this to a nightly
+    automation to keep disk usage in check.
+  fields:
+    max_age_days:
+      name: Max age (days)
+      description: >-
+        Files whose modification time is older than this threshold get
+        removed. Default 180 covers two seasons of riding.
+      required: false
+      default: 180
+      selector:
+        number:
+          min: 1
+          max: 3650
+          mode: box
+    config_entry_id:
+      name: Config entry
+      description: Only required when more than one Wahoo account is configured.
+      required: false
+      selector:
+        config_entry:
+          integration: hawahooligan

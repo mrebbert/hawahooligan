@@ -11,6 +11,11 @@
   ``workout_id: latest`` (or ``null``) to release the pin and follow the
   newest workout again. Used by the bundled viewer dropdown so picking a
   ride from the map also updates the sensor cards next to it.
+
+``hawahooligan.cleanup_geojson``
+  Prune cached GeoJSON tracks older than ``max_age_days`` days from
+  ``<config>/www/hawahooligan/``. The cache grows unbounded otherwise —
+  this is the manual escape hatch users can wire to a nightly automation.
 """
 
 from __future__ import annotations
@@ -24,10 +29,12 @@ from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
 from .const import (
+    CLEANUP_DEFAULT_MAX_AGE_DAYS,
     DOMAIN,
     FULL_BACKFILL_DEFAULT_BUDGET,
     FULL_BACKFILL_DEFAULT_WINDOW_SECONDS,
     FULL_BACKFILL_MAX_PAGES,
+    SERVICE_CLEANUP_GEOJSON,
     SERVICE_FULL_BACKFILL,
     SERVICE_RENDER_WORKOUT,
     SERVICE_SELECT_WORKOUT,
@@ -45,6 +52,7 @@ _ATTR_WITH_TRACKS = "with_tracks"
 _ATTR_MAX_PAGES = "max_pages"
 _ATTR_MAX_CALLS_PER_WINDOW = "max_calls_per_window"
 _ATTR_WINDOW_SECONDS = "window_seconds"
+_ATTR_MAX_AGE_DAYS = "max_age_days"
 
 _RENDER_SCHEMA = vol.Schema(
     {
@@ -81,6 +89,16 @@ _SELECT_SCHEMA = vol.Schema(
         vol.Optional(_ATTR_CONFIG_ENTRY_ID): str,
     }
 )
+
+_CLEANUP_SCHEMA = vol.Schema(
+    {
+        vol.Optional(_ATTR_MAX_AGE_DAYS, default=CLEANUP_DEFAULT_MAX_AGE_DAYS): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=3650)
+        ),
+        vol.Optional(_ATTR_CONFIG_ENTRY_ID): str,
+    }
+)
+
 
 _FULL_BACKFILL_SCHEMA = vol.Schema(
     {
@@ -123,6 +141,13 @@ def async_register_services(hass: HomeAssistant) -> None:
             _handle_full_backfill,
             schema=_FULL_BACKFILL_SCHEMA,
         )
+    if not hass.services.has_service(DOMAIN, SERVICE_CLEANUP_GEOJSON):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_CLEANUP_GEOJSON,
+            _handle_cleanup_geojson,
+            schema=_CLEANUP_SCHEMA,
+        )
 
 
 @callback
@@ -132,6 +157,7 @@ def async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_RENDER_WORKOUT,
         SERVICE_SELECT_WORKOUT,
         SERVICE_FULL_BACKFILL,
+        SERVICE_CLEANUP_GEOJSON,
     ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)
@@ -204,6 +230,22 @@ async def _handle_full_backfill(call: ServiceCall) -> None:
         with_tracks,
         max_calls_per_window,
         window_seconds,
+    )
+
+
+async def _handle_cleanup_geojson(call: ServiceCall) -> None:
+    coordinator = _resolve_coordinator(call.hass, call.data.get(_ATTR_CONFIG_ENTRY_ID))
+    max_age_days = int(call.data.get(_ATTR_MAX_AGE_DAYS, CLEANUP_DEFAULT_MAX_AGE_DAYS))
+    try:
+        removed = await coordinator.async_cleanup_geojson(max_age_days)
+    except HomeAssistantError:
+        raise
+    except Exception as err:  # noqa: BLE001 — surface as HomeAssistantError
+        raise HomeAssistantError(f"GeoJSON cleanup failed: {err}") from err
+    _LOGGER.info(
+        "cleanup_geojson: removed %d file(s) older than %d day(s)",
+        removed,
+        max_age_days,
     )
 
 

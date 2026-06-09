@@ -112,6 +112,20 @@
           "description": "Nur erforderlich, wenn mehr als ein Wahoo-Konto konfiguriert ist."
         }
       }
+    },
+    "cleanup_geojson": {
+      "name": "Track-Cache aufräumen",
+      "description": "Entfernt zwischengespeicherte GeoJSON-Tracks älter als max_age_days aus www/hawahooligan/. Der Cache wächst mit Backfills und render_workout-Calls — als nächtliche Automation ausgeführt hält er den Speicherverbrauch im Zaum.",
+      "fields": {
+        "max_age_days": {
+          "name": "Max. Alter (Tage)",
+          "description": "Dateien, die älter als diese Schwelle sind, werden gelöscht. Standardwert 180 deckt zwei Saisons ab."
+        },
+        "config_entry_id": {
+          "name": "Konfigurationseintrag",
+          "description": "Nur erforderlich, wenn mehr als ein Wahoo-Konto konfiguriert ist."
+        }
+      }
     }
   }
 }

@@ -112,6 +112,20 @@
           "description": "Only required when more than one Wahoo account is configured."
         }
       }
+    },
+    "cleanup_geojson": {
+      "name": "Cleanup cached tracks",
+      "description": "Prune cached GeoJSON track files older than max_age_days from www/hawahooligan/. The cache grows with backfills and render_workout calls; run from a nightly automation to cap disk usage.",
+      "fields": {
+        "max_age_days": {
+          "name": "Max age (days)",
+          "description": "Files older than this threshold are removed. Default 180 covers two riding seasons."
+        },
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "Only required when more than one Wahoo account is configured."
+        }
+      }
     }
   }
 }

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -247,6 +248,27 @@ def _geojson_path(directory: Path, workout_id: int | str) -> Path:
 def _has_geojson(directory: Path, workout_id: int | str) -> bool:
     """Blocking filesystem check — caller dispatches via executor."""
     return _geojson_path(directory, workout_id).is_file()
+
+
+def _cleanup_geojson(directory: Path, cutoff_epoch: float) -> int:
+    """Blocking: delete ``*.geojson`` files older than ``cutoff_epoch``.
+
+    Returns the number of removed files. Missing dir → 0 (nothing to prune).
+    Per-file failures are skipped so one stuck file doesn't block the rest.
+    """
+    if not directory.is_dir():
+        return 0
+    removed = 0
+    for path in directory.glob("*.geojson"):
+        try:
+            if path.stat().st_mtime < cutoff_epoch:
+                path.unlink()
+                removed += 1
+        except OSError:
+            # Skip permission errors / races with another writer — surface
+            # via the count, the caller can re-run later.
+            continue
+    return removed
 
 
 def _write_manifest(directory: Path, recent: list[RecentWorkout], selected_id: int | None) -> None:
@@ -770,6 +792,31 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             raise
 
         return added_total
+
+    async def async_cleanup_geojson(self, max_age_days: int) -> int:
+        """Prune ``*.geojson`` files in the cache directory older than ``max_age_days``.
+
+        The cache (``<config>/www/hawahooligan/``) grows with every backfill
+        and ``render_workout`` call. This is the manual escape hatch — wired
+        to the ``hawahooligan.cleanup_geojson`` service so users can run a
+        nightly automation to cap disk usage.
+
+        ``max_age_days`` must be >= 1 — the service-layer schema rejects
+        anything below.
+
+        Returns the number of removed files.
+        """
+        cutoff_epoch = time.time() - max_age_days * 86400
+        removed = await self.hass.async_add_executor_job(
+            _cleanup_geojson, self._geojson_dir, cutoff_epoch
+        )
+        if removed:
+            _LOGGER.info(
+                "Cleanup: removed %d GeoJSON file(s) older than %d day(s)",
+                removed,
+                max_age_days,
+            )
+        return removed
 
     def _emit_backfill_event(self, *, page: int, processed: int, added: int, done: bool) -> None:
         self.hass.bus.async_fire(
