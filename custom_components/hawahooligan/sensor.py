@@ -14,7 +14,6 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import (
-    PERCENTAGE,  # noqa: F401 — reserved for Phase-4 zone-share sensors
     UnitOfEnergy,
     UnitOfLength,
     UnitOfPower,

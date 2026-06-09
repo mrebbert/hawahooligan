@@ -436,7 +436,6 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
                     detail = await self._api.async_get_workout(target_id)
                 except WahooApiError as inner_err:
                     raise UpdateFailed(str(inner_err)) from inner_err
-                needs_detail = True
 
             data = _build_workout_data(detail)
             data.recent = recent
