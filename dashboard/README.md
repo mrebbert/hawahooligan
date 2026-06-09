@@ -1,7 +1,7 @@
 # Example dashboard
 
 Drop-in Lovelace view that pairs the bundled HAWahooligan Leaflet viewer
-with the workout sensors, grouped into four readable sections.
+with the workout sensors, grouped into five readable sections.
 
 For HACS install + OAuth setup see the [project README](../README.md).
 This page focuses on the dashboard itself.
@@ -10,19 +10,24 @@ This page focuses on the dashboard itself.
 
 ```text
 ┌──────────────────────────────┬──────────────────────────────┐
-│                              │  Tour                        │
-│        Karte                 │  • Start (last_workout)      │
-│   ┌────────────────────┐     │  • Name / Typ / Indoor       │
-│   │     Leaflet map    │     │  • Route-ID / Plan-ID        │
-│   │  with picker ▼     │     │  • Auswahl (pin)             │
-│   └────────────────────┘     │                              │
+│  Map                         │  Workout                     │
+│   ┌────────────────────┐     │  • Start (last_workout)      │
+│   │     Leaflet map    │     │  • Name / Type / Indoor      │
+│   │  with picker ▼     │     │  • Route ID / Plan ID        │
+│   └────────────────────┘     │  • Selection (pin)           │
 ├──────────────────────────────┼──────────────────────────────┤
-│  Zeit & Strecke              │  Leistung & Körper           │
+│  Time & distance             │  Power & body                │
 │  • Duration (active/total/   │  • Avg power / NP / TSS      │
 │    paused)                   │  • Work                      │
 │  • Distance / Ascent         │  • Avg HR / Cadence          │
 │  • Avg speed / Calories      │                              │
-└──────────────────────────────┴──────────────────────────────┘
+├──────────────────────────────┴──────────────────────────────┤
+│  Lifetime                                                   │
+│  • Workouts / Distance / Ascent / Duration                  │
+│  • Calories / Work / TSS                                    │
+│    (state_class=total_increasing — drop a utility_meter     │
+│     helper on top for weekly / monthly / yearly buckets)    │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ## Wiring it up

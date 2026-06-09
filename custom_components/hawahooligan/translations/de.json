@@ -1,0 +1,89 @@
+{
+  "config": {
+    "step": {
+      "pick_implementation": {
+        "title": "Authentifizierungsmethode wählen"
+      },
+      "reauth_confirm": {
+        "title": "Erneut bei Wahoo anmelden",
+        "description": "Deine Wahoo-Autorisierung ist abgelaufen oder wurde widerrufen. Melde dich erneut an, um Workouts weiter zu synchronisieren."
+      }
+    },
+    "abort": {
+      "already_configured": "Dieses Wahoo-Konto ist bereits konfiguriert.",
+      "authorize_url_timeout": "Zeitüberschreitung beim Erzeugen der Autorisierungs-URL.",
+      "missing_configuration": "Die Integration ist nicht konfiguriert. Bitte folge der Dokumentation, um Application Credentials einzurichten.",
+      "no_url_available": "Keine URL verfügbar. Konfiguriere eine externe URL für Home Assistant oder aktiviere My Home Assistant.",
+      "oauth_error": "Ungültige Token-Daten von Wahoo empfangen.",
+      "oauth_failed": "Fehler beim Abrufen des Access-Tokens von Wahoo.",
+      "oauth_timeout": "Zeitüberschreitung beim Abrufen des Access-Tokens.",
+      "oauth_unauthorized": "OAuth-Autorisierungsfehler beim Abrufen des Tokens.",
+      "reauth_successful": "Erneute Anmeldung erfolgreich.",
+      "user_rejected_authorize": "Kontoverknüpfung wurde abgelehnt: {error}",
+      "wrong_account": "Dieses Wahoo-Konto stimmt nicht mit dem konfigurierten Eintrag überein. Melde dich erneut mit dem ursprünglichen Konto an.",
+      "cannot_connect": "Die Wahoo Cloud API ist nicht erreichbar."
+    },
+    "create_entry": {
+      "default": "Authentifizierung bei Wahoo erfolgreich."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "last_workout": { "name": "Letzte Fahrt" },
+      "distance": { "name": "Distanz" },
+      "ascent": { "name": "Höhenmeter" },
+      "duration": { "name": "Aktive Dauer" },
+      "duration_total": { "name": "Gesamtdauer" },
+      "duration_paused": { "name": "Pausenzeit" },
+      "speed_avg": { "name": "Durchschnittsgeschwindigkeit" },
+      "power_avg": { "name": "Durchschnittsleistung" },
+      "power_np": { "name": "Normalisierte Leistung" },
+      "tss": { "name": "Training-Stress-Score" },
+      "heart_rate_avg": { "name": "Durchschnittliche Herzfrequenz" },
+      "cadence_avg": { "name": "Durchschnittliche Trittfrequenz" },
+      "calories": { "name": "Kalorien" },
+      "work": { "name": "Arbeit" },
+      "lifetime_distance": { "name": "Distanz insgesamt" },
+      "lifetime_ascent": { "name": "Höhenmeter insgesamt" },
+      "lifetime_duration": { "name": "Dauer insgesamt" },
+      "lifetime_calories": { "name": "Kalorien insgesamt" },
+      "lifetime_work": { "name": "Arbeit insgesamt" },
+      "lifetime_tss": { "name": "TSS insgesamt" },
+      "lifetime_workouts": { "name": "Workouts insgesamt" }
+    }
+  },
+  "services": {
+    "render_workout": {
+      "name": "Workout-Track rendern",
+      "description": "Lädt ein Wahoo-Workout per ID und rendert dessen FIT-Datei als GeoJSON-Track im HA-Konfigurationsverzeichnis www/hawahooligan/.",
+      "fields": {
+        "workout_id": {
+          "name": "Workout-ID",
+          "description": "Numerische Wahoo-Workout-ID (sichtbar in der URL der Wahoo-Webapp)."
+        },
+        "config_entry_id": {
+          "name": "Konfigurationseintrag",
+          "description": "Nur erforderlich, wenn mehr als ein Wahoo-Konto konfiguriert ist."
+        },
+        "force": {
+          "name": "Neu rendern erzwingen",
+          "description": "FIT-Datei erneut herunterladen und das vorhandene GeoJSON überschreiben, selbst wenn für diese Workout-ID bereits eine Datei existiert."
+        }
+      }
+    },
+    "select_workout": {
+      "name": "Workout auswählen",
+      "description": "Heftet die Headline-Sensoren und den Karten-Viewer an eine bestimmte Workout-ID, sodass das gesamte Dashboard der gewählten Fahrt folgt. 'latest' übergeben, um die Heftung wieder aufzulösen.",
+      "fields": {
+        "workout_id": {
+          "name": "Workout-ID",
+          "description": "Numerische Wahoo-Workout-ID oder der Literal 'latest', um dem neuesten Workout zu folgen."
+        },
+        "config_entry_id": {
+          "name": "Konfigurationseintrag",
+          "description": "Nur erforderlich, wenn mehr als ein Wahoo-Konto konfiguriert ist."
+        }
+      }
+    }
+  }
+}

@@ -28,7 +28,7 @@ views:
       - type: grid
         cards:
           - type: heading
-            heading: Karte
+            heading: Map
             heading_style: title
             icon: mdi:map-marker-path
           - type: iframe
@@ -44,7 +44,7 @@ views:
       - type: grid
         cards:
           - type: heading
-            heading: Tour
+            heading: Workout
             heading_style: title
             icon: mdi:bike
           - type: entities
@@ -59,7 +59,7 @@ views:
               - type: attribute
                 entity: sensor.hawahooligan_last_workout
                 attribute: workout_type
-                name: Typ
+                name: Type
               - type: attribute
                 entity: sensor.hawahooligan_last_workout
                 attribute: indoor
@@ -67,15 +67,15 @@ views:
               - type: attribute
                 entity: sensor.hawahooligan_last_workout
                 attribute: route_id
-                name: Route-ID
+                name: Route ID
               - type: attribute
                 entity: sensor.hawahooligan_last_workout
                 attribute: plan_id
-                name: Plan-ID
+                name: Plan ID
               - type: attribute
                 entity: sensor.hawahooligan_last_workout
                 attribute: selected_workout_id
-                name: Auswahl
+                name: Selection
             state_color: false
             grid_options:
               columns: 12
@@ -84,7 +84,7 @@ views:
       - type: grid
         cards:
           - type: heading
-            heading: Zeit & Strecke
+            heading: Time & distance
             heading_style: title
             icon: mdi:clock-outline
           - type: entities
@@ -104,7 +104,7 @@ views:
       - type: grid
         cards:
           - type: heading
-            heading: Leistung & Körper
+            heading: Power & body
             heading_style: title
             icon: mdi:flash
           - type: entities
@@ -123,7 +123,7 @@ views:
       - type: grid
         cards:
           - type: heading
-            heading: Insgesamt
+            heading: Lifetime
             heading_style: title
             icon: mdi:counter
           # Lifetime sensors carry state_class=total_increasing — drop a
