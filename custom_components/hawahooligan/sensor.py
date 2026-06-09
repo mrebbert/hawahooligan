@@ -31,32 +31,46 @@ from .coordinator import WahooCoordinator, WahooPowerZonesCoordinator, WorkoutDa
 from .power_zones import PowerZonesData
 from .totals import LifetimeTotals
 
+# translation_keys whose desired English-style entity_id slug differs from
+# the translation_key itself. Every other description-driven sensor uses
+# its translation_key as its slug — only divergent ones land here.
+#
+# Why we pin slugs at all: HA derives entity_ids from the slugified
+# active-locale friendly name (German "Kritische Leistung" →
+# ``kritische_leistung``), breaking the documented dashboard YAML. The pin
+# only takes effect when the ``suggested_object_id`` *property* is
+# overridden — ``_attr_suggested_object_id`` and
+# ``EntityDescription.suggested_object_id`` are NOT read by the entity
+# platform (verified against ``homeassistant/helpers/entity_platform.py``
+# 2026.x). The three standalone sensors below override the property
+# directly with a literal string.
+_OBJECT_ID_OVERRIDES: Mapping[str, str] = {
+    "speed_avg": "average_speed",
+    "power_avg": "average_power",
+    "power_np": "normalized_power",
+    "tss": "training_stress_score",
+    "heart_rate_avg": "average_heart_rate",
+    "cadence_avg": "average_cadence",
+    "duration_total": "total_duration",
+    "duration_paused": "paused_duration",
+}
+
+
+def _object_id_for(translation_key: str) -> str:
+    return _OBJECT_ID_OVERRIDES.get(translation_key, translation_key)
+
 
 @dataclass(frozen=True, kw_only=True)
 class WahooSensorDescription(SensorEntityDescription):
-    """Describe a Wahoo summary sensor and how to project ``WorkoutData`` onto it.
-
-    ``suggested_object_id`` pins the entity_id suffix so the slug stays
-    stable across locales — HA otherwise derives it from the user-locale's
-    translated friendly name, which produces things like
-    ``sensor.hawahooligan_kritische_leistung`` on a German install.
-    """
+    """Describe a Wahoo summary sensor and how to project ``WorkoutData`` onto it."""
 
     value_fn: Callable[[WorkoutData], float | int | str | datetime | None]
-    suggested_object_id: str
 
 
-# ``suggested_object_id`` per entry matches the slugified ENGLISH friendly
-# name that ``en.json`` produces — so a German install that bypassed our
-# default by registering when ``de.json`` was already loaded still ends up
-# with ``sensor.hawahooligan_average_speed`` rather than
-# ``…_durchschnittsgeschwindigkeit``. Existing entries in the registry are
-# never auto-renamed; this only fixes new installs going forward.
 SUMMARY_SENSORS: tuple[WahooSensorDescription, ...] = (
     WahooSensorDescription(
         key="distance",
         translation_key="distance",
-        suggested_object_id="distance",
         device_class=SensorDeviceClass.DISTANCE,
         native_unit_of_measurement=UnitOfLength.KILOMETERS,
         state_class=SensorStateClass.MEASUREMENT,
@@ -66,7 +80,6 @@ SUMMARY_SENSORS: tuple[WahooSensorDescription, ...] = (
     WahooSensorDescription(
         key="ascent",
         translation_key="ascent",
-        suggested_object_id="ascent",
         device_class=SensorDeviceClass.DISTANCE,
         native_unit_of_measurement=UnitOfLength.METERS,
         state_class=SensorStateClass.MEASUREMENT,
@@ -76,7 +89,6 @@ SUMMARY_SENSORS: tuple[WahooSensorDescription, ...] = (
     WahooSensorDescription(
         key="duration",
         translation_key="duration",
-        suggested_object_id="duration",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.MINUTES,
         state_class=SensorStateClass.MEASUREMENT,
@@ -86,7 +98,6 @@ SUMMARY_SENSORS: tuple[WahooSensorDescription, ...] = (
     WahooSensorDescription(
         key="duration_total",
         translation_key="duration_total",
-        suggested_object_id="total_duration",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.MINUTES,
         state_class=SensorStateClass.MEASUREMENT,
@@ -96,7 +107,6 @@ SUMMARY_SENSORS: tuple[WahooSensorDescription, ...] = (
     WahooSensorDescription(
         key="duration_paused",
         translation_key="duration_paused",
-        suggested_object_id="paused_duration",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.MINUTES,
         state_class=SensorStateClass.MEASUREMENT,
@@ -106,7 +116,6 @@ SUMMARY_SENSORS: tuple[WahooSensorDescription, ...] = (
     WahooSensorDescription(
         key="speed_avg",
         translation_key="speed_avg",
-        suggested_object_id="average_speed",
         device_class=SensorDeviceClass.SPEED,
         native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
         state_class=SensorStateClass.MEASUREMENT,
@@ -116,7 +125,6 @@ SUMMARY_SENSORS: tuple[WahooSensorDescription, ...] = (
     WahooSensorDescription(
         key="power_avg",
         translation_key="power_avg",
-        suggested_object_id="average_power",
         device_class=SensorDeviceClass.POWER,
         native_unit_of_measurement=UnitOfPower.WATT,
         state_class=SensorStateClass.MEASUREMENT,
@@ -126,7 +134,6 @@ SUMMARY_SENSORS: tuple[WahooSensorDescription, ...] = (
     WahooSensorDescription(
         key="power_np",
         translation_key="power_np",
-        suggested_object_id="normalized_power",
         device_class=SensorDeviceClass.POWER,
         native_unit_of_measurement=UnitOfPower.WATT,
         state_class=SensorStateClass.MEASUREMENT,
@@ -136,7 +143,6 @@ SUMMARY_SENSORS: tuple[WahooSensorDescription, ...] = (
     WahooSensorDescription(
         key="tss",
         translation_key="tss",
-        suggested_object_id="training_stress_score",
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
         value_fn=lambda d: d.tss,
@@ -144,7 +150,6 @@ SUMMARY_SENSORS: tuple[WahooSensorDescription, ...] = (
     WahooSensorDescription(
         key="heart_rate_avg",
         translation_key="heart_rate_avg",
-        suggested_object_id="average_heart_rate",
         # No device_class for HR — HA has none. Custom unit + measurement class.
         native_unit_of_measurement="bpm",
         state_class=SensorStateClass.MEASUREMENT,
@@ -154,7 +159,6 @@ SUMMARY_SENSORS: tuple[WahooSensorDescription, ...] = (
     WahooSensorDescription(
         key="cadence_avg",
         translation_key="cadence_avg",
-        suggested_object_id="average_cadence",
         native_unit_of_measurement="rpm",
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=0,
@@ -163,7 +167,6 @@ SUMMARY_SENSORS: tuple[WahooSensorDescription, ...] = (
     WahooSensorDescription(
         key="calories",
         translation_key="calories",
-        suggested_object_id="calories",
         native_unit_of_measurement="kcal",
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=0,
@@ -172,7 +175,6 @@ SUMMARY_SENSORS: tuple[WahooSensorDescription, ...] = (
     WahooSensorDescription(
         key="work",
         translation_key="work",
-        suggested_object_id="work",
         # No device_class=ENERGY here: HA's ENERGY class expects accumulating
         # state_class (``total`` / ``total_increasing``), but ``work_kj`` is a
         # per-workout snapshot that resets to a fresh value with every ride.
@@ -193,12 +195,9 @@ class WahooLifetimeSensorDescription(SensorEntityDescription):
     ``field_name`` is the sum() field the sensor projects (e.g. ``distance_km``)
     and drives the outdoor/indoor split attributes. The workout-count sensor
     passes ``None`` because its split goes through count-based helpers instead.
-    ``suggested_object_id`` keeps the entity_id stable across locales — same
-    rationale as on :class:`WahooSensorDescription`.
     """
 
     value_fn: Callable[[LifetimeTotals], float | int]
-    suggested_object_id: str
     field_name: str | None = None
 
 
@@ -211,7 +210,6 @@ LIFETIME_SENSORS: tuple[WahooLifetimeSensorDescription, ...] = (
     WahooLifetimeSensorDescription(
         key="lifetime_distance",
         translation_key="lifetime_distance",
-        suggested_object_id="lifetime_distance",
         device_class=SensorDeviceClass.DISTANCE,
         native_unit_of_measurement=UnitOfLength.KILOMETERS,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -222,7 +220,6 @@ LIFETIME_SENSORS: tuple[WahooLifetimeSensorDescription, ...] = (
     WahooLifetimeSensorDescription(
         key="lifetime_ascent",
         translation_key="lifetime_ascent",
-        suggested_object_id="lifetime_ascent",
         device_class=SensorDeviceClass.DISTANCE,
         native_unit_of_measurement=UnitOfLength.METERS,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -233,7 +230,6 @@ LIFETIME_SENSORS: tuple[WahooLifetimeSensorDescription, ...] = (
     WahooLifetimeSensorDescription(
         key="lifetime_duration",
         translation_key="lifetime_duration",
-        suggested_object_id="lifetime_duration",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.MINUTES,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -244,7 +240,6 @@ LIFETIME_SENSORS: tuple[WahooLifetimeSensorDescription, ...] = (
     WahooLifetimeSensorDescription(
         key="lifetime_calories",
         translation_key="lifetime_calories",
-        suggested_object_id="lifetime_calories",
         native_unit_of_measurement="kcal",
         state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=0,
@@ -254,7 +249,6 @@ LIFETIME_SENSORS: tuple[WahooLifetimeSensorDescription, ...] = (
     WahooLifetimeSensorDescription(
         key="lifetime_work",
         translation_key="lifetime_work",
-        suggested_object_id="lifetime_work",
         native_unit_of_measurement=UnitOfEnergy.KILO_JOULE,
         state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=0,
@@ -264,7 +258,6 @@ LIFETIME_SENSORS: tuple[WahooLifetimeSensorDescription, ...] = (
     WahooLifetimeSensorDescription(
         key="lifetime_tss",
         translation_key="lifetime_tss",
-        suggested_object_id="lifetime_tss",
         state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=0,
         value_fn=lambda t: t.tss,
@@ -273,7 +266,6 @@ LIFETIME_SENSORS: tuple[WahooLifetimeSensorDescription, ...] = (
     WahooLifetimeSensorDescription(
         key="lifetime_workouts",
         translation_key="lifetime_workouts",
-        suggested_object_id="lifetime_workouts",
         state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=0,
         value_fn=lambda t: t.workout_count,
@@ -313,18 +305,53 @@ def _device_info(entry_id: str) -> DeviceInfo:
     )
 
 
+class _WahooDescriptionEntity(CoordinatorEntity[WahooCoordinator], SensorEntity):
+    """Boilerplate shared by description-driven Wahoo sensors.
+
+    Overriding ``suggested_object_id`` is the load-bearing piece for
+    locale-stable entity_ids. HA's default property slugifies the
+    locale-translated friendly name (German "Kritische Leistung" →
+    ``kritische_leistung``); overriding the property is the only path the
+    entity_platform actually reads. ``_attr_suggested_object_id`` and
+    ``EntityDescription.suggested_object_id`` are both ignored as of
+    HA 2026.x — checked against ``homeassistant/helpers/entity_platform.py``.
+    """
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: WahooCoordinator,
+        entry_id: str,
+        description: SensorEntityDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = f"{entry_id}_{description.key}"
+        self._attr_device_info = _device_info(entry_id)
+
+    @property
+    def suggested_object_id(self) -> str | None:
+        return _object_id_for(
+            self.entity_description.translation_key or self.entity_description.key
+        )
+
+
 class WahooLastWorkoutSensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
     """Headline sensor: state = start time of the most recent workout."""
 
     _attr_has_entity_name = True
     _attr_translation_key = "last_workout"
-    _attr_suggested_object_id = "last_workout"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
     def __init__(self, coordinator: WahooCoordinator, entry_id: str) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry_id}_last_workout"
         self._attr_device_info = _device_info(entry_id)
+
+    @property
+    def suggested_object_id(self) -> str | None:
+        return "last_workout"
 
     @property
     def native_value(self) -> datetime | None:
@@ -372,22 +399,10 @@ class WahooLastWorkoutSensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
         }
 
 
-class WahooSummarySensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
+class WahooSummarySensor(_WahooDescriptionEntity):
     """Sensor backed by a single field of ``WorkoutData``."""
 
-    _attr_has_entity_name = True
-
-    def __init__(
-        self,
-        coordinator: WahooCoordinator,
-        entry_id: str,
-        description: WahooSensorDescription,
-    ) -> None:
-        super().__init__(coordinator)
-        self.entity_description = description
-        self._attr_unique_id = f"{entry_id}_{description.key}"
-        self._attr_suggested_object_id = description.suggested_object_id
-        self._attr_device_info = _device_info(entry_id)
+    entity_description: WahooSensorDescription
 
     @property
     def native_value(self) -> float | int | str | datetime | None:
@@ -397,7 +412,7 @@ class WahooSummarySensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
         return self.entity_description.value_fn(data)
 
 
-class WahooLifetimeSensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
+class WahooLifetimeSensor(_WahooDescriptionEntity):
     """Sensor backed by ``WahooCoordinator.totals`` (a :class:`LifetimeTotals`).
 
     Each sensor exposes the headline total as its state and the indoor /
@@ -405,19 +420,7 @@ class WahooLifetimeSensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
     automations without spawning a second set of entities.
     """
 
-    _attr_has_entity_name = True
-
-    def __init__(
-        self,
-        coordinator: WahooCoordinator,
-        entry_id: str,
-        description: WahooLifetimeSensorDescription,
-    ) -> None:
-        super().__init__(coordinator)
-        self.entity_description = description
-        self._attr_unique_id = f"{entry_id}_{description.key}"
-        self._attr_suggested_object_id = description.suggested_object_id
-        self._attr_device_info = _device_info(entry_id)
+    entity_description: WahooLifetimeSensorDescription
 
     @property
     def native_value(self) -> float | int:
@@ -446,7 +449,6 @@ class WahooFtpSensor(CoordinatorEntity[WahooPowerZonesCoordinator], SensorEntity
 
     _attr_has_entity_name = True
     _attr_translation_key = "ftp"
-    _attr_suggested_object_id = "ftp"
     _attr_device_class = SensorDeviceClass.POWER
     _attr_native_unit_of_measurement = UnitOfPower.WATT
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -456,6 +458,10 @@ class WahooFtpSensor(CoordinatorEntity[WahooPowerZonesCoordinator], SensorEntity
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry_id}_ftp"
         self._attr_device_info = _device_info(entry_id)
+
+    @property
+    def suggested_object_id(self) -> str | None:
+        return "ftp"
 
     @property
     def native_value(self) -> float | None:
@@ -489,7 +495,6 @@ class WahooCriticalPowerSensor(CoordinatorEntity[WahooPowerZonesCoordinator], Se
 
     _attr_has_entity_name = True
     _attr_translation_key = "critical_power"
-    _attr_suggested_object_id = "critical_power"
     _attr_device_class = SensorDeviceClass.POWER
     _attr_native_unit_of_measurement = UnitOfPower.WATT
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -499,6 +504,10 @@ class WahooCriticalPowerSensor(CoordinatorEntity[WahooPowerZonesCoordinator], Se
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry_id}_critical_power"
         self._attr_device_info = _device_info(entry_id)
+
+    @property
+    def suggested_object_id(self) -> str | None:
+        return "critical_power"
 
     @property
     def native_value(self) -> float | None:

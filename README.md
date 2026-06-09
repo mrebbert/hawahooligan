@@ -241,10 +241,13 @@ There are two common ways this drifts away from the documented YAML:
    after `de.json` shipped (0.7.0+).** The German friendly name
    "Kritische Leistung" slugifies to
    `sensor.hawahooligan_kritische_leistung`, not
-   `sensor.hawahooligan_critical_power`. As of 0.7.7 every sensor
-   ships `suggested_object_id` so new installs always get the
-   English-style slug. Existing entries are pinned by the registry
-   and don't auto-rename; fix them at
+   `sensor.hawahooligan_critical_power`. As of 0.7.8 every sensor
+   overrides `suggested_object_id` so new installs always get the
+   English-style slug regardless of locale. (0.7.7 attempted this
+   via `_attr_suggested_object_id`, but HA's entity platform does
+   not read that attribute — the property override in 0.7.8 is the
+   working fix.) Existing entries are pinned by the registry and
+   don't auto-rename; fix them at
    **Settings → Devices & Services → HAWahooligan → click an entity →
    ⚙ → Entity ID** and set the documented form.
 
