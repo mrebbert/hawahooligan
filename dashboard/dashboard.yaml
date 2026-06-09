@@ -146,6 +146,34 @@ views:
       - type: grid
         cards:
           - type: heading
+            heading: Outdoor vs indoor
+            heading_style: subtitle
+            icon: mdi:weather-sunny
+          # Every lifetime sensor carries ``outdoor`` and ``indoor`` sub-sums
+          # as attributes. The markdown table below renders them in one
+          # compact view; for a single-metric template sensor use
+          # state_attr('sensor.hawahooligan_lifetime_distance', 'outdoor').
+          # Workouts persisted before 0.7.2 had no location flag and
+          # therefore land in neither subset — only the headline totals
+          # claim them.
+          - type: markdown
+            content: |
+              |          | Outdoor | Indoor |
+              |----------|---------|--------|
+              | Workouts | {{ state_attr('sensor.hawahooligan_lifetime_workouts','outdoor') }} | {{ state_attr('sensor.hawahooligan_lifetime_workouts','indoor') }} |
+              | Distance | {{ state_attr('sensor.hawahooligan_lifetime_distance','outdoor') | round(1) }} km | {{ state_attr('sensor.hawahooligan_lifetime_distance','indoor') | round(1) }} km |
+              | Ascent | {{ state_attr('sensor.hawahooligan_lifetime_ascent','outdoor') | round(0) }} m | {{ state_attr('sensor.hawahooligan_lifetime_ascent','indoor') | round(0) }} m |
+              | Duration | {{ state_attr('sensor.hawahooligan_lifetime_duration','outdoor') | round(0) }} min | {{ state_attr('sensor.hawahooligan_lifetime_duration','indoor') | round(0) }} min |
+              | Calories | {{ state_attr('sensor.hawahooligan_lifetime_calories','outdoor') | round(0) }} kcal | {{ state_attr('sensor.hawahooligan_lifetime_calories','indoor') | round(0) }} kcal |
+              | Work | {{ state_attr('sensor.hawahooligan_lifetime_work','outdoor') | round(0) }} kJ | {{ state_attr('sensor.hawahooligan_lifetime_work','indoor') | round(0) }} kJ |
+              | TSS | {{ state_attr('sensor.hawahooligan_lifetime_tss','outdoor') | round(0) }} | {{ state_attr('sensor.hawahooligan_lifetime_tss','indoor') | round(0) }} |
+            grid_options:
+              columns: 12
+              rows: auto
+
+      - type: grid
+        cards:
+          - type: heading
             heading: Profile
             heading_style: title
             icon: mdi:account-heart-outline

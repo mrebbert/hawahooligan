@@ -162,14 +162,22 @@ SUMMARY_SENSORS: tuple[WahooSensorDescription, ...] = (
 
 @dataclass(frozen=True, kw_only=True)
 class WahooLifetimeSensorDescription(SensorEntityDescription):
-    """Describe a lifetime-total sensor and how to project ``LifetimeTotals``."""
+    """Describe a lifetime-total sensor and how to project ``LifetimeTotals``.
+
+    ``field_name`` is the sum() field the sensor projects (e.g. ``distance_km``)
+    and drives the outdoor/indoor split attributes. The workout-count sensor
+    passes ``None`` because its split goes through count-based helpers instead.
+    """
 
     value_fn: Callable[[LifetimeTotals], float | int]
+    field_name: str | None = None
 
 
 # Lifetime totals — ``state_class=total_increasing`` makes the HA recorder
 # treat these as monotonically growing meters. Users can drop a utility_meter
 # helper on top to get week / month / year buckets without any extra Python.
+# Each sensor also exposes ``outdoor`` / ``indoor`` sub-sums as attributes so
+# templates and automations can split the totals by location.
 LIFETIME_SENSORS: tuple[WahooLifetimeSensorDescription, ...] = (
     WahooLifetimeSensorDescription(
         key="lifetime_distance",
@@ -179,6 +187,7 @@ LIFETIME_SENSORS: tuple[WahooLifetimeSensorDescription, ...] = (
         state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=1,
         value_fn=lambda t: t.distance_km,
+        field_name="distance_km",
     ),
     WahooLifetimeSensorDescription(
         key="lifetime_ascent",
@@ -188,6 +197,7 @@ LIFETIME_SENSORS: tuple[WahooLifetimeSensorDescription, ...] = (
         state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=0,
         value_fn=lambda t: t.ascent_m,
+        field_name="ascent_m",
     ),
     WahooLifetimeSensorDescription(
         key="lifetime_duration",
@@ -197,6 +207,7 @@ LIFETIME_SENSORS: tuple[WahooLifetimeSensorDescription, ...] = (
         state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=0,
         value_fn=lambda t: t.duration_min,
+        field_name="duration_min",
     ),
     WahooLifetimeSensorDescription(
         key="lifetime_calories",
@@ -205,6 +216,7 @@ LIFETIME_SENSORS: tuple[WahooLifetimeSensorDescription, ...] = (
         state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=0,
         value_fn=lambda t: t.calories_kcal,
+        field_name="calories_kcal",
     ),
     WahooLifetimeSensorDescription(
         key="lifetime_work",
@@ -213,6 +225,7 @@ LIFETIME_SENSORS: tuple[WahooLifetimeSensorDescription, ...] = (
         state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=0,
         value_fn=lambda t: t.work_kj,
+        field_name="work_kj",
     ),
     WahooLifetimeSensorDescription(
         key="lifetime_tss",
@@ -220,6 +233,7 @@ LIFETIME_SENSORS: tuple[WahooLifetimeSensorDescription, ...] = (
         state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=0,
         value_fn=lambda t: t.tss,
+        field_name="tss",
     ),
     WahooLifetimeSensorDescription(
         key="lifetime_workouts",
@@ -227,6 +241,7 @@ LIFETIME_SENSORS: tuple[WahooLifetimeSensorDescription, ...] = (
         state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=0,
         value_fn=lambda t: t.workout_count,
+        field_name=None,
     ),
 )
 
@@ -345,7 +360,12 @@ class WahooSummarySensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
 
 
 class WahooLifetimeSensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
-    """Sensor backed by ``WahooCoordinator.totals`` (a :class:`LifetimeTotals`)."""
+    """Sensor backed by ``WahooCoordinator.totals`` (a :class:`LifetimeTotals`).
+
+    Each sensor exposes the headline total as its state and the indoor /
+    outdoor sub-sums as attributes — so templates can build location-aware
+    automations without spawning a second set of entities.
+    """
 
     _attr_has_entity_name = True
 
@@ -363,6 +383,23 @@ class WahooLifetimeSensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
     @property
     def native_value(self) -> float | int:
         return self.entity_description.value_fn(self.coordinator.totals)
+
+    @property
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:
+        totals: LifetimeTotals = self.coordinator.totals
+        description = self.entity_description
+        # Workout-count sensor — split by counting entries tagged indoor /
+        # outdoor. Pre-split data carries no tag and stays out of both
+        # sub-counts.
+        if description.field_name is None:
+            return {
+                "outdoor": totals.workout_count_outdoor,
+                "indoor": totals.workout_count_indoor,
+            }
+        return {
+            "outdoor": totals.sum(description.field_name, indoor=False),
+            "indoor": totals.sum(description.field_name, indoor=True),
+        }
 
 
 class WahooFtpSensor(CoordinatorEntity[WahooPowerZonesCoordinator], SensorEntity):

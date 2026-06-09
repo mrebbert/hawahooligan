@@ -8,6 +8,14 @@ keyed by ``workout_id``. Re-observing the same workout (e.g. a backfill
 running on top of an already-seen ride, or a service-driven re-render)
 doesn't double-count. Totals survive restarts via the serialization
 helpers — the coordinator uses HA's ``Store`` to persist them per entry.
+
+Indoor / outdoor split (added 2026-06-09): every contribution can carry an
+``indoor`` flag that gets stored alongside the numeric fields. ``sum`` can
+then filter on it so the headline sensors can expose ``outdoor`` /
+``indoor`` sub-totals as attributes. Workouts persisted before the flag
+existed read back without it and are excluded from both subsets — neither
+``indoor`` nor ``outdoor`` claims them — which preserves the overall total
+while keeping the splits accurate.
 """
 
 from __future__ import annotations
@@ -15,12 +23,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-# Persisted document layout. Bump :data:`SCHEMA_VERSION` when we change the
-# shape so the storage helper can migrate cleanly.
+# Persisted document layout. The on-disk schema is forward-compatible: a
+# missing ``indoor`` key in an entry is just treated as "unknown" so older
+# payloads load without a migration step.
 SCHEMA_VERSION = 1
 
-# Fields we accumulate. ``None`` entries on a workout default to 0 — Wahoo
-# omits fields per workout type (indoor rides have no distance, etc.).
+# Numeric fields we accumulate. ``None`` entries on a workout default to 0 —
+# Wahoo omits fields per workout type (indoor rides have no distance, etc.).
 _FIELDS = (
     "distance_km",
     "ascent_m",
@@ -29,6 +38,7 @@ _FIELDS = (
     "work_kj",
     "tss",
 )
+_INDOOR_KEY = "indoor"
 
 
 @dataclass(slots=True)
@@ -36,6 +46,7 @@ class WorkoutContribution:
     """The per-workout values that feed the lifetime totals."""
 
     workout_id: int
+    indoor: bool | None = None
     distance_km: float | None = None
     ascent_m: float | None = None
     duration_min: float | None = None
@@ -52,17 +63,19 @@ class LifetimeTotals:
     id already in the seen-set and returns without touching the sums.
     """
 
-    workouts: dict[int, dict[str, float]] = field(default_factory=dict)
+    workouts: dict[int, dict[str, Any]] = field(default_factory=dict)
 
     def add(self, contribution: WorkoutContribution) -> bool:
         """Record ``contribution`` if not seen before. Returns ``True`` if added."""
         if contribution.workout_id in self.workouts:
             return False
-        entry: dict[str, float] = {}
+        entry: dict[str, Any] = {}
         for field_name in _FIELDS:
             value = getattr(contribution, field_name)
-            if isinstance(value, (int, float)):
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
                 entry[field_name] = float(value)
+        if contribution.indoor is not None:
+            entry[_INDOOR_KEY] = bool(contribution.indoor)
         self.workouts[contribution.workout_id] = entry
         return True
 
@@ -70,10 +83,34 @@ class LifetimeTotals:
     def workout_count(self) -> int:
         return len(self.workouts)
 
-    def sum(self, field_name: str) -> float:
+    @property
+    def workout_count_outdoor(self) -> int:
+        return sum(1 for e in self.workouts.values() if e.get(_INDOOR_KEY) is False)
+
+    @property
+    def workout_count_indoor(self) -> int:
+        return sum(1 for e in self.workouts.values() if e.get(_INDOOR_KEY) is True)
+
+    def sum(self, field_name: str, *, indoor: bool | None = None) -> float:
+        """Sum ``field_name`` across all entries (default) or one location bucket.
+
+        ``indoor=True`` restricts the sum to entries explicitly tagged as
+        indoor; ``indoor=False`` restricts to outdoor. Entries persisted
+        before the indoor flag existed have no tag and stay out of both
+        subsets — they only contribute to the unfiltered total.
+        """
         if field_name not in _FIELDS:
             raise KeyError(f"Unknown lifetime field {field_name!r}")
-        return sum(entry.get(field_name, 0.0) for entry in self.workouts.values())
+        total = 0.0
+        for entry in self.workouts.values():
+            if indoor is True and entry.get(_INDOOR_KEY) is not True:
+                continue
+            if indoor is False and entry.get(_INDOOR_KEY) is not False:
+                continue
+            value = entry.get(field_name)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                total += float(value)
+        return total
 
     @property
     def distance_km(self) -> float:
@@ -118,7 +155,7 @@ class LifetimeTotals:
         raw = payload.get("workouts") or {}
         if not isinstance(raw, dict):
             return cls()
-        out: dict[int, dict[str, float]] = {}
+        out: dict[int, dict[str, Any]] = {}
         for key, values in raw.items():
             try:
                 workout_id = int(key)
@@ -126,10 +163,13 @@ class LifetimeTotals:
                 continue
             if not isinstance(values, dict):
                 continue
-            entry: dict[str, float] = {}
+            entry: dict[str, Any] = {}
             for field_name in _FIELDS:
                 value = values.get(field_name)
-                if isinstance(value, (int, float)):
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
                     entry[field_name] = float(value)
+            indoor_value = values.get(_INDOOR_KEY)
+            if isinstance(indoor_value, bool):
+                entry[_INDOOR_KEY] = indoor_value
             out[workout_id] = entry
         return cls(workouts=out)

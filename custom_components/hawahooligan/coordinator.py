@@ -352,6 +352,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         added = self._totals.add(
             WorkoutContribution(
                 workout_id=data.workout_id,
+                indoor=data.indoor,
                 distance_km=data.distance_km,
                 ascent_m=data.ascent_m,
                 duration_min=data.duration_min,

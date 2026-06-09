@@ -1,7 +1,7 @@
 # Example dashboard
 
 Drop-in Lovelace view that pairs the bundled HAWahooligan Leaflet viewer
-with the workout sensors, grouped into five readable sections.
+with the workout sensors, grouped into seven readable sections.
 
 For HACS install + OAuth setup see the [project README](../README.md).
 This page focuses on the dashboard itself.
@@ -27,6 +27,18 @@ This page focuses on the dashboard itself.
 │  • Calories / Work / TSS                                    │
 │    (state_class=total_increasing — drop a utility_meter     │
 │     helper on top for weekly / monthly / yearly buckets)    │
+├─────────────────────────────────────────────────────────────┤
+│  Outdoor vs indoor                                          │
+│  Markdown table reading the ``outdoor`` / ``indoor``        │
+│  attributes that each lifetime sensor exposes. Workouts     │
+│  persisted before 0.7.2 had no location flag and land in    │
+│  neither column — they only count in the headline totals    │
+│  above.                                                     │
+├─────────────────────────────────────────────────────────────┤
+│  Profile                                                    │
+│  • FTP / Critical power                                     │
+│    Zone thresholds (zone_1…zone_7) ride along as            │
+│    attributes on sensor.hawahooligan_ftp.                   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
