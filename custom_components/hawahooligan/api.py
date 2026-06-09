@@ -14,6 +14,7 @@ against rate limits) and only fall back to Bearer if the plain GET returns
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -25,7 +26,26 @@ from homeassistant.helpers.config_entry_oauth2_flow import OAuth2Session
 
 from .const import API_BASE
 
+# Defensive backoff when Wahoo returns 429 — read ``Retry-After`` if present,
+# otherwise fall back to a sandbox-safe wait that's longer than the 5-min
+# rate-limit window.
+_RETRY_AFTER_DEFAULT_SECONDS = 60
+_RETRY_AFTER_MAX_SECONDS = 600
+
 _LOGGER = logging.getLogger(__name__)
+
+
+def _parse_retry_after(header: str | None) -> int:
+    """Return seconds to wait for a 429, clamped to a sane range."""
+    if header is None:
+        return _RETRY_AFTER_DEFAULT_SECONDS
+    try:
+        value = int(header)
+    except (TypeError, ValueError):
+        return _RETRY_AFTER_DEFAULT_SECONDS
+    if value < 1:
+        return _RETRY_AFTER_DEFAULT_SECONDS
+    return min(value, _RETRY_AFTER_MAX_SECONDS)
 
 
 class WahooApiError(Exception):
@@ -50,30 +70,57 @@ class WahooApi:
 
         Maps HTTP 401 / invalid_grant to ``ConfigEntryAuthFailed`` so the
         coordinator can trigger the reauth flow without losing the entry.
+        Handles HTTP 429 by sleeping for the ``Retry-After`` window and
+        retrying the call once — the budget the backfill layers on top
+        keeps healthy callers from ever hitting this branch, but it's a
+        useful defensive net when several callers race or the user's
+        Wahoo app is on the Sandbox tier.
         """
         url = f"{API_BASE}{path}"
-        try:
-            response = await self._session.async_request(method, url, params=params)
-        except ClientResponseError as err:
-            if err.status in (400, 401):
-                raise ConfigEntryAuthFailed(
-                    f"Wahoo refresh failed ({err.status} {err.message})"
+        for attempt in range(2):
+            try:
+                response = await self._session.async_request(
+                    method, url, params=params
+                )
+            except ClientResponseError as err:
+                if err.status in (400, 401):
+                    raise ConfigEntryAuthFailed(
+                        f"Wahoo refresh failed ({err.status} {err.message})"
+                    ) from err
+                raise WahooApiError(f"Wahoo API {method} {path} failed: {err}") from err
+            except ClientError as err:
+                raise WahooApiError(
+                    f"Wahoo API {method} {path} transport error: {err}"
                 ) from err
-            raise WahooApiError(f"Wahoo API {method} {path} failed: {err}") from err
-        except ClientError as err:
-            raise WahooApiError(f"Wahoo API {method} {path} transport error: {err}") from err
 
-        if response.status == 401:
-            raise ConfigEntryAuthFailed("Wahoo API returned 401 — token revoked or expired")
-        if response.status == 204:
-            return None
-        if response.status >= 400:
-            text = await response.text()
-            raise WahooApiError(
-                f"Wahoo API {method} {path} returned HTTP {response.status}: {text[:200]}"
-            )
+            if response.status == 401:
+                raise ConfigEntryAuthFailed(
+                    "Wahoo API returned 401 — token revoked or expired"
+                )
+            if response.status == 429 and attempt == 0:
+                wait = _parse_retry_after(response.headers.get("Retry-After"))
+                _LOGGER.warning(
+                    "Wahoo API %s %s returned HTTP 429 — sleeping %ds before retry",
+                    method,
+                    path,
+                    wait,
+                )
+                await asyncio.sleep(wait)
+                continue
+            if response.status == 204:
+                return None
+            if response.status >= 400:
+                text = await response.text()
+                raise WahooApiError(
+                    f"Wahoo API {method} {path} returned HTTP {response.status}: {text[:200]}"
+                )
 
-        return await response.json()
+            return await response.json()
+        # If both attempts hit 429, surface the second response as a hard
+        # failure instead of looping forever.
+        raise WahooApiError(
+            f"Wahoo API {method} {path} returned HTTP 429 twice in a row"
+        )
 
     async def async_get_user(self) -> dict[str, Any]:
         """Return ``GET /v1/user`` — used as unique_id source for the config entry."""

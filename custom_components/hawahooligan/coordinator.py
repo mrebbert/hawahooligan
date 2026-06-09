@@ -574,7 +574,15 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
 
         Also refreshes the picker manifest with whatever the listing returned
         so the viewer sees the historic rides even before the next poll runs.
+
+        Wraps detail calls in the same sandbox-safe rate-limit budget the
+        full-history backfill uses so the initial 20-call burst can't trip
+        the Wahoo Sandbox 25 / 5-min ceiling.
         """
+        budget = RateLimitBudget(
+            FULL_BACKFILL_DEFAULT_BUDGET, FULL_BACKFILL_DEFAULT_WINDOW_SECONDS
+        )
+        await budget.acquire()
         try:
             listing = await self._api.async_get_workouts(per_page=count)
         except WahooApiError as err:
@@ -596,6 +604,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             if geojson_exists and totals_recorded:
                 continue
 
+            await budget.acquire()
             try:
                 detail = await self._api.async_get_workout(workout_id)
             except WahooApiError as err:
