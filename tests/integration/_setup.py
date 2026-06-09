@@ -1,13 +1,20 @@
-"""Shared helpers for entity_id probe tests.
+"""Shared helpers for Tier-2 integration tests.
 
-Both ``test_dashboard_entity_ids`` and ``test_entity_ids_german_locale``
-load the config entry into a real HA instance with mocked Wahoo internals,
-then walk the entity registry. The patch stack is identical — only the
-HA locale differs — so the setup lives here.
+Every test that drives the integration through a real HA instance needs
+the same OAuth implementation stubs (HA's OAuth flow would otherwise
+reach out to the configured authorization server). Tests that ALSO
+need the workout + power-zones coordinators silenced can use the
+high-level ``setup_entity_id_probe`` helper.
+
+Tests that want to OBSERVE coordinator behavior (reauth propagation,
+backfill bail-out, totals persistence wiring) need finer-grained
+control — they wrap their own patches around ``oauth_implementation_patches()``.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import HomeAssistant
@@ -16,6 +23,26 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.hawahooligan.const import DOMAIN
 from custom_components.hawahooligan.coordinator import WorkoutData
+
+
+@contextmanager
+def oauth_implementation_patches() -> Iterator[None]:
+    """Stub out the OAuth implementation + session lookup.
+
+    Both reach the network in a live HA install; tests need them inert
+    but otherwise want production code to run.
+    """
+    with (
+        patch(
+            "custom_components.hawahooligan.config_entry_oauth2_flow.async_get_config_entry_implementation",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "custom_components.hawahooligan.config_entry_oauth2_flow.OAuth2Session",
+            return_value=MagicMock(),
+        ),
+    ):
+        yield
 
 
 async def setup_entity_id_probe(hass: HomeAssistant) -> None:
@@ -28,14 +55,7 @@ async def setup_entity_id_probe(hass: HomeAssistant) -> None:
     )
     entry.add_to_hass(hass)
     with (
-        patch(
-            "custom_components.hawahooligan.config_entry_oauth2_flow.async_get_config_entry_implementation",
-            return_value=MagicMock(),
-        ),
-        patch(
-            "custom_components.hawahooligan.config_entry_oauth2_flow.OAuth2Session",
-            return_value=MagicMock(),
-        ),
+        oauth_implementation_patches(),
         patch("custom_components.hawahooligan.WahooApi", return_value=MagicMock()),
         patch(
             "custom_components.hawahooligan.WahooCoordinator.async_config_entry_first_refresh",
