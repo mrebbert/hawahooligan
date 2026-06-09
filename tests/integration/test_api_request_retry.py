@@ -87,9 +87,11 @@ async def test_request_raises_after_two_consecutive_429s(hass: HomeAssistant) ->
 
     api = WahooApi(hass, session)
 
-    with patch("custom_components.hawahooligan.api.asyncio.sleep", new=AsyncMock()):
-        with pytest.raises(WahooApiError) as exc_info:
-            await api._request("GET", "/v1/workouts")
+    with (
+        patch("custom_components.hawahooligan.api.asyncio.sleep", new=AsyncMock()),
+        pytest.raises(WahooApiError) as exc_info,
+    ):
+        await api._request("GET", "/v1/workouts")
 
     assert exc_info.value.status_code == 429
     assert session.async_request.call_count == 2

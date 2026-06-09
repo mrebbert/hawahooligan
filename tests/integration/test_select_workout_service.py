@@ -54,9 +54,7 @@ async def test_select_workout_dispatches_numeric_id(hass: HomeAssistant) -> None
     entry = await _setup_entry(hass)
     coordinator = entry.runtime_data.coordinator
 
-    with patch.object(
-        coordinator, "async_select_workout", new=AsyncMock()
-    ) as select_spy:
+    with patch.object(coordinator, "async_select_workout", new=AsyncMock()) as select_spy:
         await hass.services.async_call(
             DOMAIN,
             "select_workout",
@@ -72,9 +70,7 @@ async def test_select_workout_dispatches_latest_sentinel(hass: HomeAssistant) ->
     entry = await _setup_entry(hass)
     coordinator = entry.runtime_data.coordinator
 
-    with patch.object(
-        coordinator, "async_select_workout", new=AsyncMock()
-    ) as select_spy:
+    with patch.object(coordinator, "async_select_workout", new=AsyncMock()) as select_spy:
         await hass.services.async_call(
             DOMAIN,
             "select_workout",
@@ -90,9 +86,7 @@ async def test_select_workout_accepts_string_id(hass: HomeAssistant) -> None:
     entry = await _setup_entry(hass)
     coordinator = entry.runtime_data.coordinator
 
-    with patch.object(
-        coordinator, "async_select_workout", new=AsyncMock()
-    ) as select_spy:
+    with patch.object(coordinator, "async_select_workout", new=AsyncMock()) as select_spy:
         await hass.services.async_call(
             DOMAIN,
             "select_workout",

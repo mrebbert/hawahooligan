@@ -61,16 +61,12 @@ def _check_compatible(label: str, device_class, state_class) -> None:
 
 def test_summary_sensor_descriptions_have_compatible_classes() -> None:
     for desc in SUMMARY_SENSORS:
-        _check_compatible(
-            f"SUMMARY_SENSORS[{desc.key}]", desc.device_class, desc.state_class
-        )
+        _check_compatible(f"SUMMARY_SENSORS[{desc.key}]", desc.device_class, desc.state_class)
 
 
 def test_lifetime_sensor_descriptions_have_compatible_classes() -> None:
     for desc in LIFETIME_SENSORS:
-        _check_compatible(
-            f"LIFETIME_SENSORS[{desc.key}]", desc.device_class, desc.state_class
-        )
+        _check_compatible(f"LIFETIME_SENSORS[{desc.key}]", desc.device_class, desc.state_class)
 
 
 def test_standalone_sensor_classes_have_compatible_classes() -> None:
