@@ -10,6 +10,7 @@ from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import config_entry_oauth2_flow
 
 from .api import WahooApi
@@ -50,11 +51,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: HawahooliganConfigEntry)
     await coordinator.async_load_totals()
     await coordinator.async_config_entry_first_refresh()
     # The zones coordinator is allowed to fail without blocking setup —
-    # a missing `power_zones_read` scope surfaces as a HA reauth notification
-    # without taking the workout pipeline down with it.
+    # a missing ``power_zones_read`` scope surfaces as a HA reauth
+    # notification without taking the workout pipeline down with it. The
+    # auth-failed branch has to start reauth manually because we catch it
+    # here instead of letting it propagate to HA's setup machinery.
     try:
         await power_zones_coordinator.async_config_entry_first_refresh()
-    except Exception as err:  # noqa: BLE001 — zones are advisory, never fatal
+    except ConfigEntryAuthFailed as err:
+        _LOGGER.info(
+            "Power-zones scope missing — starting reauth flow: %s", err
+        )
+        entry.async_start_reauth(hass)
+    except Exception as err:  # noqa: BLE001 — non-auth failures stay advisory
         _LOGGER.warning("Power-zones first refresh failed: %s", err)
 
     entry.runtime_data = HawahooliganData(
