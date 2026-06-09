@@ -33,6 +33,7 @@ from .const import (
     BACKFILL_COUNT,
     DOMAIN,
     MANIFEST_FILENAME,
+    POWER_ZONES_UPDATE_INTERVAL,
     RECENT_COUNT,
     UPDATE_INTERVAL,
     WWW_SUBPATH,
@@ -41,6 +42,7 @@ from .const import (
     workout_type_name,
 )
 from .fit import parse_fit_to_geojson, write_geojson
+from .power_zones import PowerZonesData, parse_power_zones
 from .totals import SCHEMA_VERSION as _TOTALS_SCHEMA_VERSION
 from .totals import LifetimeTotals, WorkoutContribution
 
@@ -608,3 +610,30 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         )
         await self._refresh_manifest(recent, self._selected_workout_id)
         return rendered
+
+
+class WahooPowerZonesCoordinator(DataUpdateCoordinator[PowerZonesData | None]):
+    """Polls ``GET /v1/power_zones`` once a day.
+
+    Failures here are isolated from the main workout pipeline — the workout
+    coordinator runs on its own update interval and doesn't share state.
+    An auth/scope problem (HTTP 401/403) still bubbles up as
+    ``ConfigEntryAuthFailed`` so HA can drive the reauth flow.
+    """
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, api: WahooApi) -> None:
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN} power zones ({entry.title})",
+            update_interval=POWER_ZONES_UPDATE_INTERVAL,
+            config_entry=entry,
+        )
+        self._api = api
+
+    async def _async_update_data(self) -> PowerZonesData | None:
+        try:
+            response = await self._api.async_get_power_zones()
+        except WahooApiError as err:
+            raise UpdateFailed(str(err)) from err
+        return parse_power_zones(response)

@@ -28,7 +28,8 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import HawahooliganConfigEntry
 from .const import DOMAIN
-from .coordinator import WahooCoordinator, WorkoutData
+from .coordinator import WahooCoordinator, WahooPowerZonesCoordinator, WorkoutData
+from .power_zones import PowerZonesData
 from .totals import LifetimeTotals
 
 
@@ -238,9 +239,8 @@ async def async_setup_entry(
 ) -> None:
     """Add sensor entities for the workout summary + the headline timestamp."""
     coordinator = entry.runtime_data.coordinator
-    entities: list[CoordinatorEntity[WahooCoordinator]] = [
-        WahooLastWorkoutSensor(coordinator, entry.entry_id)
-    ]
+    power_zones_coordinator = entry.runtime_data.power_zones_coordinator
+    entities: list[CoordinatorEntity[Any]] = [WahooLastWorkoutSensor(coordinator, entry.entry_id)]
     entities.extend(
         WahooSummarySensor(coordinator, entry.entry_id, description)
         for description in SUMMARY_SENSORS
@@ -249,6 +249,8 @@ async def async_setup_entry(
         WahooLifetimeSensor(coordinator, entry.entry_id, description)
         for description in LIFETIME_SENSORS
     )
+    entities.append(WahooFtpSensor(power_zones_coordinator, entry.entry_id))
+    entities.append(WahooCriticalPowerSensor(power_zones_coordinator, entry.entry_id))
     async_add_entities(entities)
 
 
@@ -362,3 +364,68 @@ class WahooLifetimeSensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
     @property
     def native_value(self) -> float | int:
         return self.entity_description.value_fn(self.coordinator.totals)
+
+
+class WahooFtpSensor(CoordinatorEntity[WahooPowerZonesCoordinator], SensorEntity):
+    """FTP (functional threshold power). Zone thresholds ride along as attributes."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "ftp"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 0
+
+    def __init__(self, coordinator: WahooPowerZonesCoordinator, entry_id: str) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry_id}_ftp"
+        self._attr_device_info = _device_info(entry_id)
+
+    @property
+    def native_value(self) -> float | None:
+        data: PowerZonesData | None = self.coordinator.data
+        if data is None:
+            return None
+        return data.ftp
+
+    @property
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:
+        data: PowerZonesData | None = self.coordinator.data
+        if data is None:
+            return None
+        return {
+            "zone_count": data.zone_count,
+            "zone_1": data.zone_1,
+            "zone_2": data.zone_2,
+            "zone_3": data.zone_3,
+            "zone_4": data.zone_4,
+            "zone_5": data.zone_5,
+            "zone_6": data.zone_6,
+            "zone_7": data.zone_7,
+            "workout_type_id": data.workout_type_id,
+            "workout_type_family_id": data.workout_type_family_id,
+            "updated_at": data.updated_at,
+        }
+
+
+class WahooCriticalPowerSensor(CoordinatorEntity[WahooPowerZonesCoordinator], SensorEntity):
+    """Critical power (MMP). Wahoo treats this as a separate metric from FTP."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "critical_power"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 0
+
+    def __init__(self, coordinator: WahooPowerZonesCoordinator, entry_id: str) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry_id}_critical_power"
+        self._attr_device_info = _device_info(entry_id)
+
+    @property
+    def native_value(self) -> float | None:
+        data: PowerZonesData | None = self.coordinator.data
+        if data is None:
+            return None
+        return data.critical_power

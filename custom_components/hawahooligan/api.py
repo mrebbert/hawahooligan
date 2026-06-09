@@ -91,6 +91,26 @@ class WahooApi:
         """Return ``GET /v1/workouts/:id`` (always includes ``workout_summary``)."""
         return await self._request("GET", f"/v1/workouts/{workout_id}")
 
+    async def async_get_power_zones(self) -> list[dict[str, Any]]:
+        """Return ``GET /v1/power_zones``.
+
+        Requires the ``power_zones_read`` scope. The base :meth:`_request`
+        helper already maps 401 to ``ConfigEntryAuthFailed`` for the
+        refresh-token case; here we additionally translate the 403 that
+        Wahoo returns when the token genuinely lacks the scope so HA's
+        framework triggers the reauth flow.
+        """
+        try:
+            return await self._request("GET", "/v1/power_zones")
+        except WahooApiError as err:
+            text = str(err)
+            if "HTTP 403" in text:
+                raise ConfigEntryAuthFailed(
+                    "Wahoo /v1/power_zones returned 403 — reauth needed for the "
+                    "power_zones_read scope"
+                ) from err
+            raise
+
     async def async_delete_permissions(self) -> None:
         """``DELETE /v1/permissions`` — deauthorize the token server-side.
 

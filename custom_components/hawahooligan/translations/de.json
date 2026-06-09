@@ -49,7 +49,9 @@
       "lifetime_calories": { "name": "Kalorien insgesamt" },
       "lifetime_work": { "name": "Arbeit insgesamt" },
       "lifetime_tss": { "name": "TSS insgesamt" },
-      "lifetime_workouts": { "name": "Workouts insgesamt" }
+      "lifetime_workouts": { "name": "Workouts insgesamt" },
+      "ftp": { "name": "FTP" },
+      "critical_power": { "name": "Kritische Leistung" }
     }
   },
   "services": {

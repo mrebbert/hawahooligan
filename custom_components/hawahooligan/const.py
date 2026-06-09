@@ -19,12 +19,17 @@ OAUTH2_TOKEN: Final = f"{API_BASE}/oauth/token"
 # Least-privilege scopes for Phase 1-3. `power_zones_read` is added later when
 # Phase 4 (FTP / critical-power sensor) lands. `offline_data` is documented for
 # webhook use but kept here as a safety net for long-lived refresh-token flows.
-SCOPES: Final = "user_read workouts_read offline_data"
+SCOPES: Final = "user_read workouts_read power_zones_read offline_data"
 
 # Coordinator poll interval. With the conditional single-workout fetch the
 # integration uses ~1 call per poll → ~96/day, which fits comfortably inside
 # the Wahoo Sandbox rate limit (250/day).
 UPDATE_INTERVAL: Final = timedelta(minutes=15)
+
+# Power zones / FTP rarely change (only after a fresh CP / FTP test), so the
+# secondary coordinator polls just once a day. That keeps the API budget
+# untouched and the sensor state coherent.
+POWER_ZONES_UPDATE_INTERVAL: Final = timedelta(hours=24)
 
 # Where we drop generated artifacts (GeoJSON tracks + the Leaflet viewer):
 # ``<config>/www/hawahooligan/``. HA serves ``<config>/www/`` under

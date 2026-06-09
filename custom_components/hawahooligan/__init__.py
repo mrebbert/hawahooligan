@@ -14,7 +14,7 @@ from homeassistant.helpers import config_entry_oauth2_flow
 
 from .api import WahooApi
 from .const import DOMAIN, PLATFORMS, WWW_SUBPATH
-from .coordinator import WahooCoordinator
+from .coordinator import WahooCoordinator, WahooPowerZonesCoordinator
 from .services import async_register_services, async_unregister_services
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,6 +29,7 @@ class HawahooliganData:
 
     api: WahooApi
     coordinator: WahooCoordinator
+    power_zones_coordinator: WahooPowerZonesCoordinator
 
 
 type HawahooliganConfigEntry = ConfigEntry[HawahooliganData]
@@ -42,12 +43,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: HawahooliganConfigEntry)
     session = config_entry_oauth2_flow.OAuth2Session(hass, entry, implementation)
     api = WahooApi(hass, session)
     coordinator = WahooCoordinator(hass, entry, api)
+    power_zones_coordinator = WahooPowerZonesCoordinator(hass, entry, api)
 
     await hass.async_add_executor_job(_provision_viewer, Path(hass.config.path(*WWW_SUBPATH)))
 
+    await coordinator.async_load_totals()
     await coordinator.async_config_entry_first_refresh()
+    # The zones coordinator is allowed to fail without blocking setup —
+    # a missing `power_zones_read` scope surfaces as a HA reauth notification
+    # without taking the workout pipeline down with it.
+    try:
+        await power_zones_coordinator.async_config_entry_first_refresh()
+    except Exception as err:  # noqa: BLE001 — zones are advisory, never fatal
+        _LOGGER.warning("Power-zones first refresh failed: %s", err)
 
-    entry.runtime_data = HawahooliganData(api=api, coordinator=coordinator)
+    entry.runtime_data = HawahooliganData(
+        api=api,
+        coordinator=coordinator,
+        power_zones_coordinator=power_zones_coordinator,
+    )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

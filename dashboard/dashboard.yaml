@@ -142,3 +142,22 @@ views:
             grid_options:
               columns: 12
               rows: auto
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Profile
+            heading_style: title
+            icon: mdi:account-heart-outline
+          # Power-zones data refreshes once a day. The 7 zone boundaries
+          # ride along as attributes on sensor.hawahooligan_ftp — query
+          # them with template sensors (state_attr('sensor.hawahooligan_ftp',
+          # 'zone_4')) if you want individual sensors.
+          - type: entities
+            entities:
+              - entity: sensor.hawahooligan_ftp
+              - entity: sensor.hawahooligan_critical_power
+            state_color: false
+            grid_options:
+              columns: 12
+              rows: auto

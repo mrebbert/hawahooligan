@@ -27,3 +27,4 @@ def _load(name: str, path: Path) -> None:
 
 _load("fit", _ROOT / "fit.py")
 _load("totals", _ROOT / "totals.py")
+_load("power_zones", _ROOT / "power_zones.py")
