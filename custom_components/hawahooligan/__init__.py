@@ -58,9 +58,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: HawahooliganConfigEntry)
     try:
         await power_zones_coordinator.async_config_entry_first_refresh()
     except ConfigEntryAuthFailed as err:
-        _LOGGER.info(
-            "Power-zones scope missing — starting reauth flow: %s", err
-        )
+        _LOGGER.info("Power-zones scope missing — starting reauth flow: %s", err)
         entry.async_start_reauth(hass)
     except Exception as err:  # noqa: BLE001 — non-auth failures stay advisory
         _LOGGER.warning("Power-zones first refresh failed: %s", err)

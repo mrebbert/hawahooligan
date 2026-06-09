@@ -579,9 +579,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         full-history backfill uses so the initial 20-call burst can't trip
         the Wahoo Sandbox 25 / 5-min ceiling.
         """
-        budget = RateLimitBudget(
-            FULL_BACKFILL_DEFAULT_BUDGET, FULL_BACKFILL_DEFAULT_WINDOW_SECONDS
-        )
+        budget = RateLimitBudget(FULL_BACKFILL_DEFAULT_BUDGET, FULL_BACKFILL_DEFAULT_WINDOW_SECONDS)
         await budget.acquire()
         try:
             listing = await self._api.async_get_workouts(per_page=count)
@@ -592,6 +590,12 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         workouts = listing.get("workouts") or []
 
         rendered = 0
+        # Pulling the same 429 back-to-back means Wahoo's larger window (the
+        # hourly or daily cap, not the rolling 5-min one) is exhausted. Keep
+        # trying just floods the log without making progress, so bail out
+        # after a handful and leave the next poll to retry the listing call.
+        consecutive_429s = 0
+        max_consecutive_429s = 3
         for workout in workouts:
             workout_id = workout.get("id")
             if workout_id is None:
@@ -609,7 +613,19 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
                 detail = await self._api.async_get_workout(workout_id)
             except WahooApiError as err:
                 _LOGGER.warning("Backfill detail fetch for %s failed: %s", workout_id, err)
+                if err.status_code == 429:
+                    consecutive_429s += 1
+                    if consecutive_429s >= max_consecutive_429s:
+                        _LOGGER.warning(
+                            "Backfill aborting after %d consecutive 429s — Wahoo's "
+                            "larger rate-limit window is exhausted; the next regular "
+                            "poll will resume work once the quota recovers (Sandbox "
+                            "tier resets daily at 00:00 UTC)",
+                            consecutive_429s,
+                        )
+                        break
                 continue
+            consecutive_429s = 0
 
             data = _build_workout_data(detail)
             if not totals_recorded:
