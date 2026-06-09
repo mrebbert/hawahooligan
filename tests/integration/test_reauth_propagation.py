@@ -46,9 +46,7 @@ async def test_power_zones_auth_failure_triggers_reauth(hass: HomeAssistant) -> 
             "custom_components.hawahooligan.WahooPowerZonesCoordinator.async_config_entry_first_refresh",
             new=AsyncMock(side_effect=ConfigEntryAuthFailed("power_zones_read scope missing")),
         ),
-        patch.object(
-            MockConfigEntry, "async_start_reauth", autospec=True
-        ) as reauth_spy,
+        patch.object(MockConfigEntry, "async_start_reauth", autospec=True) as reauth_spy,
     ):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
@@ -90,9 +88,7 @@ async def test_power_zones_non_auth_failure_does_not_trigger_reauth(
             "custom_components.hawahooligan.WahooPowerZonesCoordinator.async_config_entry_first_refresh",
             new=AsyncMock(side_effect=RuntimeError("transient network blip")),
         ),
-        patch.object(
-            MockConfigEntry, "async_start_reauth", autospec=True
-        ) as reauth_spy,
+        patch.object(MockConfigEntry, "async_start_reauth", autospec=True) as reauth_spy,
     ):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
