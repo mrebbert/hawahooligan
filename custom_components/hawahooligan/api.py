@@ -115,8 +115,7 @@ class WahooApi:
             if response.status >= 400:
                 text = await response.text()
                 raise WahooApiError(
-                    f"Wahoo API {method} {path} returned HTTP {response.status}: "
-                    f"{text[:200]}",
+                    f"Wahoo API {method} {path} returned HTTP {response.status}: {text[:200]}",
                     status_code=response.status,
                 )
 
