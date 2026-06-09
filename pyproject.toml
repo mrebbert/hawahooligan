@@ -11,6 +11,11 @@ requires-python = ">=3.13"
 test = [
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
+    # ``test_rate_limit_budget.py`` uses ``async def`` test functions; the
+    # ``asyncio_mode = "auto"`` setting below needs pytest-asyncio to act on
+    # them. Tier-2 already pulls this in via pytest-homeassistant-custom-
+    # component, but Tier-1 has to declare it directly.
+    "pytest-asyncio>=1.0",
     # Tier-1 covers ``fit.py`` directly via importlib; the parser is a thin
     # wrapper around fitdecode so the test module needs it at import time.
     "fitdecode==0.11.0",
