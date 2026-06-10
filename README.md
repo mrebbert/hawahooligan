@@ -199,6 +199,7 @@ Lovelace iframe card.
 | `hawahooligan.select_workout` | Pin the integration to a workout id (or pass `"latest"` to release the pin). Sensors and map both follow. The viewer dropdown calls this automatically. |
 | `hawahooligan.render_workout` | Render the GeoJSON for an arbitrary workout id — useful for rides older than the 20-ride backfill window. |
 | `hawahooligan.full_backfill` | Paginate through the user's entire Wahoo history and feed the lifetime totals. Rate-limit aware (sandbox-safe defaults of 20 calls / 300 s). Fires `hawahooligan_full_backfill_progress` events per page so you can wire a notification. |
+| `hawahooligan.cleanup_geojson` | Prune cached GeoJSON track files in `<config>/www/hawahooligan/` older than `max_age_days` (default 180). Wire to a nightly automation to cap unbounded growth from backfills + `render_workout` calls. |
 
 ---
 
@@ -395,7 +396,7 @@ custom_components/hawahooligan/
 ├── power_zones.py          # /v1/power_zones parser (Tier-1 testable)
 ├── rate_limit.py           # rolling-window budget (Tier-1 testable)
 ├── sensor.py
-├── services.py             # render_workout / select_workout / full_backfill
+├── services.py             # render_workout / select_workout / full_backfill / cleanup_geojson
 ├── services.yaml
 ├── strings.json
 ├── totals.py               # lifetime totals + indoor/outdoor split
