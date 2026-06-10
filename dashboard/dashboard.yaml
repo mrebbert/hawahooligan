@@ -156,29 +156,36 @@ views:
           # Workouts persisted before 0.7.2 had no location flag and
           # therefore land in neither subset — only the headline totals
           # claim them.
-          # Row labels read the entity's friendly name (``states.X.name``)
-          # so the table picks up the user's HA locale automatically — a
-          # German install sees "Distanz insgesamt" while an English install
-          # sees "Lifetime distance".
+          # Row labels read the entity's friendly name via
+          # ``state_attr(..., 'friendly_name')`` so the table picks up the
+          # user's HA locale automatically — a German install sees
+          # "Distanz insgesamt" while an English install sees "Lifetime
+          # distance". The ``or '<fallback>'`` clause guards against the
+          # early-startup race where the integration is still loading and
+          # the entity doesn't exist yet — the older ``states.sensor.X.name``
+          # form crashed the template renderer with ``UndefinedError: 'None'
+          # has no attribute 'name'`` in exactly that window.
+          # The English fallback labels are used both as the default copy and
+          # as the safety net when the locale-aware lookup misses.
           - type: markdown
             content: >
               | | Outdoor | Indoor |
 
               |---|---|---|
 
-              | {{ states.sensor.hawahooligan_lifetime_workouts.name }} | {{ state_attr('sensor.hawahooligan_lifetime_workouts','outdoor') }} | {{ state_attr('sensor.hawahooligan_lifetime_workouts','indoor') }} |
+              | {{ state_attr('sensor.hawahooligan_lifetime_workouts', 'friendly_name') or 'Lifetime workouts' }} | {{ state_attr('sensor.hawahooligan_lifetime_workouts','outdoor') or 0 }} | {{ state_attr('sensor.hawahooligan_lifetime_workouts','indoor') or 0 }} |
 
-              | {{ states.sensor.hawahooligan_lifetime_distance.name }} | {{ state_attr('sensor.hawahooligan_lifetime_distance','outdoor') | round(1) }} km | {{ state_attr('sensor.hawahooligan_lifetime_distance','indoor') | round(1) }} km |
+              | {{ state_attr('sensor.hawahooligan_lifetime_distance', 'friendly_name') or 'Lifetime distance' }} | {{ (state_attr('sensor.hawahooligan_lifetime_distance','outdoor') or 0) | round(1) }} km | {{ (state_attr('sensor.hawahooligan_lifetime_distance','indoor') or 0) | round(1) }} km |
 
-              | {{ states.sensor.hawahooligan_lifetime_ascent.name }} | {{ state_attr('sensor.hawahooligan_lifetime_ascent','outdoor') | round(0) }} m | {{ state_attr('sensor.hawahooligan_lifetime_ascent','indoor') | round(0) }} m |
+              | {{ state_attr('sensor.hawahooligan_lifetime_ascent', 'friendly_name') or 'Lifetime ascent' }} | {{ (state_attr('sensor.hawahooligan_lifetime_ascent','outdoor') or 0) | round(0) }} m | {{ (state_attr('sensor.hawahooligan_lifetime_ascent','indoor') or 0) | round(0) }} m |
 
-              | {{ states.sensor.hawahooligan_lifetime_duration.name }} | {{ state_attr('sensor.hawahooligan_lifetime_duration','outdoor') | round(0) }} min | {{ state_attr('sensor.hawahooligan_lifetime_duration','indoor') | round(0) }} min |
+              | {{ state_attr('sensor.hawahooligan_lifetime_duration', 'friendly_name') or 'Lifetime duration' }} | {{ (state_attr('sensor.hawahooligan_lifetime_duration','outdoor') or 0) | round(0) }} min | {{ (state_attr('sensor.hawahooligan_lifetime_duration','indoor') or 0) | round(0) }} min |
 
-              | {{ states.sensor.hawahooligan_lifetime_calories.name }} | {{ state_attr('sensor.hawahooligan_lifetime_calories','outdoor') | round(0) }} kcal | {{ state_attr('sensor.hawahooligan_lifetime_calories','indoor') | round(0) }} kcal |
+              | {{ state_attr('sensor.hawahooligan_lifetime_calories', 'friendly_name') or 'Lifetime calories' }} | {{ (state_attr('sensor.hawahooligan_lifetime_calories','outdoor') or 0) | round(0) }} kcal | {{ (state_attr('sensor.hawahooligan_lifetime_calories','indoor') or 0) | round(0) }} kcal |
 
-              | {{ states.sensor.hawahooligan_lifetime_work.name }} | {{ state_attr('sensor.hawahooligan_lifetime_work','outdoor') | round(0) }} kJ | {{ state_attr('sensor.hawahooligan_lifetime_work','indoor') | round(0) }} kJ |
+              | {{ state_attr('sensor.hawahooligan_lifetime_work', 'friendly_name') or 'Lifetime work' }} | {{ (state_attr('sensor.hawahooligan_lifetime_work','outdoor') or 0) | round(0) }} kJ | {{ (state_attr('sensor.hawahooligan_lifetime_work','indoor') or 0) | round(0) }} kJ |
 
-              | {{ states.sensor.hawahooligan_lifetime_tss.name }} | {{ state_attr('sensor.hawahooligan_lifetime_tss','outdoor') | round(0) }} | {{ state_attr('sensor.hawahooligan_lifetime_tss','indoor') | round(0) }} |
+              | {{ state_attr('sensor.hawahooligan_lifetime_tss', 'friendly_name') or 'Lifetime TSS' }} | {{ (state_attr('sensor.hawahooligan_lifetime_tss','outdoor') or 0) | round(0) }} | {{ (state_attr('sensor.hawahooligan_lifetime_tss','indoor') or 0) | round(0) }} |
             grid_options:
               columns: 12
               rows: auto

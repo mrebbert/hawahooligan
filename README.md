@@ -344,8 +344,12 @@ The result is `sensor.<your_helper>_monthly` with your monthly km / TSS
 
 Indoor / outdoor breakdown lives on the same lifetime sensors as the
 `outdoor` and `indoor` attributes. The example dashboard renders them as
-a compact Markdown table that picks up your locale automatically (German
-HA → German row labels via `states.X.name`).
+a compact Markdown table that picks up your locale automatically via
+`state_attr('sensor.X', 'friendly_name')` (German HA → "Distanz
+insgesamt"). Each cell falls back to a hard-coded English label when the
+entity isn't loaded yet, so the table stays render-safe during HA
+startup instead of throwing `UndefinedError: 'None' has no attribute
+'name'`.
 
 ---
 
