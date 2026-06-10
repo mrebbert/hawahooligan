@@ -5,18 +5,18 @@
   iframe-card pointed at /local/hawahooligan/map.html.
 
   Behaviour:
-    * Loads /local/hawahooligan/workouts.json (written by the coordinator)
-      and populates a dropdown of the most recent rides.
-    * On picker change, calls the HA service hawahooligan.select_workout so
-      the headline sensors follow the same selection. The auth token is read
-      from localStorage.hassTokens — the iframe runs same-origin with HA, so
-      this works out of the box once you are signed in.
-    * Fetches /local/hawahooligan/<id>.geojson (or latest.geojson) and
-      renders it with start/end markers + fitBounds.
-    * Pre-selects the workout referenced by the ?id=<workout_id> query
-      parameter, then by manifest.selected_id, then "Latest".
+    * Polls /local/hawahooligan/workouts.json (written by the coordinator)
+      for the selected workout id and renders its track when one exists.
+    * If the selection has no GPS track (indoor, manual, or pre-render),
+      shows a friendly overlay instead of a blank map.
+    * Selection itself lives in HA — the ``select.hawahooligan_workout_picker``
+      entity drives ``coordinator.selected_workout_id``, which lands in
+      ``workouts.json`` as ``selected_id``. No in-viewer dropdown — pick
+      from the HA dashboard's select card instead.
+    * Honours ``?id=<workout_id>`` for direct deep links, overrides the
+      manifest selection while present.
 
-  HAWahooligan-Viewer-Version: 3
+  HAWahooligan-Viewer-Version: 4
   Bump that version line in custom_components/hawahooligan/web/map.html when
   you ship breaking changes — the integration re-provisions the file
   whenever the version stamp in <config>/www/hawahooligan/map.html differs
@@ -69,28 +69,48 @@
         background: #fee2e2;
         color: #991b1b;
       }
-      #picker {
+      #overlay {
         position: absolute;
-        top: 12px;
-        right: 12px;
-        z-index: 1000;
-        max-width: min(60%, 320px);
-        padding: 6px 8px;
-        border-radius: 6px;
-        border: 1px solid rgba(0, 0, 0, 0.15);
-        background: rgba(255, 255, 255, 0.95);
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
-        font-size: 13px;
-        color: inherit;
+        inset: 0;
+        z-index: 900;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 8px;
+        padding: 32px;
+        text-align: center;
+        background: rgba(245, 246, 248, 0.95);
+        color: #4b5563;
+        pointer-events: none;
       }
-      #picker.hidden {
+      #overlay.hidden {
         display: none;
+      }
+      #overlay .glyph {
+        font-size: 36px;
+      }
+      #overlay .headline {
+        font-size: 16px;
+        font-weight: 600;
+        color: #1f1f1f;
+      }
+      #overlay .sub {
+        font-size: 13px;
+        max-width: 320px;
       }
     </style>
   </head>
   <body>
     <div id="status">Loading track…</div>
-    <select id="picker" class="hidden" aria-label="Pick a workout"></select>
+    <div id="overlay" class="hidden">
+      <div class="glyph" aria-hidden="true">🏠</div>
+      <div class="headline">No GPS track for this workout</div>
+      <div class="sub">
+        Sensors above stay in sync with your selection — only the map needs an
+        outdoor ride with GPS data.
+      </div>
+    </div>
     <div id="map"></div>
     <script
       src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
@@ -114,6 +134,11 @@
         ).addTo(map);
 
         const statusEl = document.getElementById("status");
+        const overlayEl = document.getElementById("overlay");
+        const overlayGlyph = overlayEl.querySelector(".glyph");
+        const overlayHeadline = overlayEl.querySelector(".headline");
+        const overlaySub = overlayEl.querySelector(".sub");
+
         const setStatus = (text, isError = false) => {
           if (!text) {
             statusEl.classList.add("hidden");
@@ -124,9 +149,21 @@
           statusEl.textContent = text;
         };
 
+        const showOverlay = (glyph, headline, sub) => {
+          overlayGlyph.textContent = glyph;
+          overlayHeadline.textContent = headline;
+          overlaySub.textContent = sub;
+          overlayEl.classList.remove("hidden");
+        };
+
+        const hideOverlay = () => {
+          overlayEl.classList.add("hidden");
+        };
+
         // ---- track layer state -------------------------------------------------
         let trackLayer = null;
         let markerLayer = null;
+        let lastRenderedId = null;
 
         const clearTrack = () => {
           if (trackLayer) {
@@ -142,6 +179,7 @@
         const cacheBust = () => `?t=${Date.now()}`;
 
         const renderTrack = async (url, label) => {
+          hideOverlay();
           setStatus(label ? `Loading ${label}…` : "Loading track…");
           let feature;
           try {
@@ -155,7 +193,12 @@
           } catch (err) {
             console.error("HAWahooligan map failed:", err);
             clearTrack();
-            setStatus(`No track yet (${err.message})`, true);
+            setStatus(null);
+            showOverlay(
+              "🛰️",
+              "Couldn't load track",
+              `Tried ${url} — got ${err.message}. The track may not be rendered yet.`,
+            );
             return;
           }
 
@@ -210,182 +253,105 @@
           }, 4000);
         };
 
-        // ---- HA service bridge ------------------------------------------------
-        const getHassToken = () => {
-          try {
-            const raw = window.localStorage.getItem("hassTokens");
-            if (!raw) return null;
-            const parsed = JSON.parse(raw);
-            return (parsed && parsed.access_token) || null;
-          } catch (err) {
-            console.warn("Could not read hassTokens from localStorage:", err);
-            return null;
-          }
-        };
-
-        // Picks ``workoutIdOrLatest`` (a number or the string "latest") via
-        // the HA REST service so the headline sensors follow the picker.
-        // Returns true on a 2xx response. Best-effort: silent failure just
-        // means the map updates but sensors stay on the previous selection.
-        const callSelectService = async (workoutIdOrLatest) => {
-          const token = getHassToken();
-          if (!token) return false;
-          const body =
-            workoutIdOrLatest === "latest"
-              ? { workout_id: "latest" }
-              : { workout_id: Number(workoutIdOrLatest) };
-          try {
-            const response = await fetch(
-              "/api/services/hawahooligan/select_workout",
-              {
-                method: "POST",
-                credentials: "same-origin",
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify(body),
-              },
+        const showNoTrackOverlay = (workout) => {
+          clearTrack();
+          setStatus(null);
+          const name = workout && workout.name ? workout.name : "this workout";
+          if (workout && workout.indoor) {
+            showOverlay(
+              "🏠",
+              "Indoor workout — no GPS",
+              `Sensors above still reflect "${name}". The map only fills when an outdoor ride has GPS data.`,
             );
-            if (!response.ok) {
-              console.warn(
-                "select_workout service call failed:",
-                response.status,
-                await response.text(),
-              );
-              return false;
-            }
-            return true;
-          } catch (err) {
-            console.warn("select_workout service call failed:", err);
-            return false;
-          }
-        };
-
-        // ---- picker -----------------------------------------------------------
-        const pickerEl = document.getElementById("picker");
-
-        const formatStarts = (iso) => {
-          if (!iso) return "Unknown date";
-          const d = new Date(iso);
-          if (Number.isNaN(d.getTime())) return iso;
-          return d.toLocaleDateString(undefined, {
-            year: "numeric",
-            month: "short",
-            day: "2-digit",
-          });
-        };
-
-        const buildOption = (workout) => {
-          const opt = document.createElement("option");
-          opt.value = `id:${workout.id}`;
-          const label = workout.name || workout.workout_type || "Workout";
-          opt.textContent = `${formatStarts(workout.starts)} — ${label}`;
-          if (!workout.has_track) {
-            opt.disabled = true;
-            opt.textContent += " (no GPS)";
-          }
-          return opt;
-        };
-
-        const populatePicker = (manifest, urlPreselectId) => {
-          const workouts = manifest && Array.isArray(manifest.workouts)
-            ? manifest.workouts
-            : [];
-          const renderable = workouts.filter((w) => w.has_track);
-          if (renderable.length < 1) {
-            pickerEl.classList.add("hidden");
             return;
           }
-
-          pickerEl.replaceChildren();
-          const latestOpt = document.createElement("option");
-          latestOpt.value = "latest";
-          latestOpt.textContent = "Latest workout";
-          pickerEl.append(latestOpt);
-          workouts.forEach((w) => pickerEl.append(buildOption(w)));
-
-          // Preference order: URL ?id= → manifest.selected_id → Latest.
-          const manifestSelectedId =
-            manifest && manifest.selected_id != null
-              ? String(manifest.selected_id)
-              : null;
-          const desiredId = urlPreselectId || manifestSelectedId;
-          if (desiredId) {
-            const candidate = `id:${desiredId}`;
-            if (
-              Array.from(pickerEl.options).some((o) => o.value === candidate)
-            ) {
-              pickerEl.value = candidate;
-            } else {
-              pickerEl.value = "latest";
-            }
-          }
-          pickerEl.classList.remove("hidden");
-        };
-
-        const loadFromPicker = async () => {
-          const value = pickerEl.value;
-          const payload = value === "latest" ? "latest" : value.replace(/^id:/, "");
-
-          // Fire-and-forget the HA service so sensors stay in sync. We don't
-          // wait for the coordinator to refresh before painting the new
-          // track — the map updates immediately.
-          const synced = await callSelectService(payload);
-
-          if (value === "latest") {
-            renderTrack("/local/hawahooligan/latest.geojson", "latest");
-          } else {
-            const id = payload;
-            const workout = Array.from(pickerEl.options).find(
-              (o) => o.value === value,
+          if (workout && workout.manual) {
+            showOverlay(
+              "📝",
+              "Manual entry — no GPS",
+              `Sensors above still reflect "${name}". Manual workouts don't include a track.`,
             );
-            renderTrack(
-              `/local/hawahooligan/${encodeURIComponent(id)}.geojson`,
-              workout ? workout.textContent : `workout ${id}`,
-            );
+            return;
           }
-
-          if (!synced) {
-            window.setTimeout(() => {
-              if (!statusEl.classList.contains("hidden")) return;
-              setStatus(
-                "Map updated; sensors not synced (sign in to HA to enable)",
-                true,
-              );
-            }, 4500);
-          }
+          showOverlay(
+            "🛰️",
+            "No GPS track yet",
+            `Sensors above reflect "${name}". The track will appear here once it's rendered.`,
+          );
         };
 
         // ---- bootstrap --------------------------------------------------------
         const params = new URLSearchParams(window.location.search);
         const requestedId = params.get("id");
+        let urlOverrideId = requestedId ? Number(requestedId) : null;
+        if (urlOverrideId !== null && Number.isNaN(urlOverrideId)) {
+          urlOverrideId = null;
+        }
 
-        fetch(`/local/hawahooligan/workouts.json${cacheBust()}`, {
-          credentials: "same-origin",
-        })
-          .then((response) => (response.ok ? response.json() : null))
-          .catch(() => null)
-          .then((manifest) => {
-            populatePicker(manifest, requestedId);
-            pickerEl.addEventListener("change", loadFromPicker);
+        const fetchManifest = async () => {
+          try {
+            const response = await fetch(
+              `/local/hawahooligan/workouts.json${cacheBust()}`,
+              { credentials: "same-origin" },
+            );
+            if (!response.ok) return null;
+            return await response.json();
+          } catch (err) {
+            console.warn("HAWahooligan manifest fetch failed:", err);
+            return null;
+          }
+        };
 
-            // The very first render uses the same rules the picker applied:
-            // URL id → manifest.selected_id → latest.
-            const initialId =
-              requestedId ||
-              (manifest && manifest.selected_id != null
-                ? String(manifest.selected_id)
-                : null);
-            if (initialId) {
-              renderTrack(
-                `/local/hawahooligan/${encodeURIComponent(initialId)}.geojson`,
-                `workout ${initialId}`,
-              );
-            } else {
-              renderTrack("/local/hawahooligan/latest.geojson", "latest");
-            }
-          });
+        const findWorkout = (manifest, workoutId) => {
+          if (!manifest || !Array.isArray(manifest.workouts)) return null;
+          return manifest.workouts.find((w) => w.id === workoutId) || null;
+        };
+
+        const resolveTargetId = (manifest) => {
+          if (urlOverrideId !== null) return urlOverrideId;
+          if (manifest && typeof manifest.selected_id === "number") {
+            return manifest.selected_id;
+          }
+          return null;
+        };
+
+        const renderForSelection = async (manifest) => {
+          const targetId = resolveTargetId(manifest);
+          if (targetId === lastRenderedId && targetId !== null) {
+            // Already on this workout — nothing to repaint.
+            return;
+          }
+          lastRenderedId = targetId;
+          if (targetId === null) {
+            // ``selected_id: null`` means the integration is following the
+            // latest workout. ``latest.geojson`` is whatever the most recent
+            // outdoor ride was; if the latest is indoor the file is stale,
+            // and the failure path falls through to the overlay.
+            await renderTrack("/local/hawahooligan/latest.geojson", "latest");
+            return;
+          }
+          const workout = findWorkout(manifest, targetId);
+          if (workout && workout.has_track === false) {
+            showNoTrackOverlay(workout);
+            return;
+          }
+          await renderTrack(
+            `/local/hawahooligan/${encodeURIComponent(targetId)}.geojson`,
+            workout && workout.name ? workout.name : `workout ${targetId}`,
+          );
+        };
+
+        const tick = async () => {
+          const manifest = await fetchManifest();
+          await renderForSelection(manifest);
+        };
+
+        // Poll every 5 s so the viewer follows ``select_workout`` calls from
+        // the HA dropdown without needing a websocket subscription. Cheap —
+        // the manifest is a few kilobytes and is cached aggressively by the
+        // HA HTTP layer for static files.
+        tick();
+        window.setInterval(tick, 5000);
       })();
     </script>
   </body>

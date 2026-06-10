@@ -52,6 +52,9 @@
       "lifetime_workouts": { "name": "Workouts insgesamt" },
       "ftp": { "name": "FTP" },
       "critical_power": { "name": "Kritische Leistung" }
+    },
+    "select": {
+      "workout_picker": { "name": "Workout-Auswahl" }
     }
   },
   "services": {

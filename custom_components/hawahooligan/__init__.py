@@ -49,6 +49,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: HawahooliganConfigEntry)
     await hass.async_add_executor_job(_provision_viewer, Path(hass.config.path(*WWW_SUBPATH)))
 
     await coordinator.async_load_totals()
+    await coordinator.async_load_workouts_index()
     await coordinator.async_config_entry_first_refresh()
     # The zones coordinator is allowed to fail without blocking setup —
     # a missing ``power_zones_read`` scope surfaces as a HA reauth

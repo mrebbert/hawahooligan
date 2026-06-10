@@ -77,6 +77,7 @@ class RecentWorkout:
     indoor: bool
     manual: bool
     has_track: bool
+    duration_min: float | None = None
 
 
 @dataclass(slots=True)
@@ -212,6 +213,7 @@ def _build_recent_from_listing(
             continue
         type_id = workout.get("workout_type_id")
         summary = workout.get("workout_summary") or {}
+        duration_s = _as_float(summary.get("duration_active_accum"))
         result.append(
             RecentWorkout(
                 id=workout_id,
@@ -222,6 +224,7 @@ def _build_recent_from_listing(
                 indoor=is_indoor(type_id),
                 manual=bool(workout.get("manual") or summary.get("manual")),
                 has_track=(directory / f"{workout_id}.geojson").is_file(),
+                duration_min=duration_s / 60.0 if duration_s is not None else None,
             )
         )
     # Listing comes back desc by ``starts`` already, but lean on a Python sort
@@ -341,17 +344,21 @@ def _merge_and_write_manifest(
     directory: Path,
     recent: list[RecentWorkout],
     selected_id: int | None,
-) -> None:
-    """Blocking: union ``recent`` into the existing manifest.
+) -> dict[int, dict[str, Any]]:
+    """Blocking: union ``recent`` into the existing manifest, return merged set.
 
     Older entries stay in the manifest unless ``_prune_manifest`` removes
     them — that's the load-bearing piece that lets a ``full_backfill`` /
     long-running install accumulate hundreds of workouts in the dropdown
     instead of just the last 20 the recent-poll endpoint returns.
+
+    Returning the merged ``{id: entry}`` dict lets the caller mirror the
+    current manifest into in-memory state without a second read-from-disk
+    — the workout picker entity needs that for ``options``.
     """
     entries_by_id = _read_manifest_entries(directory)
     for r in recent:
-        entries_by_id[r.id] = {
+        new_entry = {
             "id": r.id,
             "name": r.name,
             "starts": r.starts,
@@ -363,19 +370,31 @@ def _merge_and_write_manifest(
             # but set here so debug-mode JSON dumps in the executor look sane.
             "has_track": (directory / f"{r.id}.geojson").is_file(),
         }
+        if r.duration_min is not None:
+            new_entry["duration_min"] = r.duration_min
+        else:
+            # Preserve any older duration we'd previously stored for this id —
+            # the listing endpoint occasionally omits ``duration_active_accum``
+            # but the detail endpoint had it during render time.
+            existing = entries_by_id.get(r.id, {})
+            if "duration_min" in existing:
+                new_entry["duration_min"] = existing["duration_min"]
+        entries_by_id[r.id] = new_entry
     _persist_manifest_atomic(directory, entries_by_id, selected_id)
+    return entries_by_id
 
 
 def _prune_manifest(
     directory: Path,
     removed_ids: set[int],
     selected_id: int | None,
-) -> None:
-    """Blocking: drop ``removed_ids`` from the manifest, atomic-write the rest."""
+) -> dict[int, dict[str, Any]]:
+    """Blocking: drop ``removed_ids`` from the manifest, return what's left."""
     entries_by_id = _read_manifest_entries(directory)
     for wid in removed_ids:
         entries_by_id.pop(wid, None)
     _persist_manifest_atomic(directory, entries_by_id, selected_id)
+    return entries_by_id
 
 
 class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
@@ -413,6 +432,12 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         # backfill (recent + full), and cleanup paths so concurrent writers
         # don't drop each other's entries on the floor.
         self._manifest_lock = asyncio.Lock()
+        # In-memory mirror of ``workouts.json``. Populated by
+        # ``async_load_workouts_index`` at setup and kept in sync by
+        # ``_refresh_manifest`` / ``async_cleanup_geojson``. The workout
+        # picker ``SelectEntity`` reads from it so the dropdown stays
+        # snappy without disk I/O on every state read.
+        self._workouts_index: dict[int, dict[str, Any]] = {}
 
     @property
     def _geojson_dir(self) -> Path:
@@ -427,6 +452,39 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
     def totals(self) -> LifetimeTotals:
         """Lifetime totals accumulator. Survives HA restarts via the store."""
         return self._totals
+
+    async def async_load_workouts_index(self) -> None:
+        """Populate the in-memory workouts index from the persisted manifest.
+
+        Lets the workout-picker ``SelectEntity`` come up with the full
+        dropdown right after restart, without waiting for the first
+        regular-poll listing to round-trip.
+        """
+        try:
+            self._workouts_index = await self.hass.async_add_executor_job(
+                _read_manifest_entries, self._geojson_dir
+            )
+        except OSError as err:
+            _LOGGER.warning("Could not preload workouts index: %s", err)
+            self._workouts_index = {}
+
+    def known_workouts(self) -> list[dict[str, Any]]:
+        """Return all known workouts sorted by ``starts`` desc.
+
+        Backs the picker ``SelectEntity.options`` — never mutate the
+        returned dicts in place; each is a shallow copy of the in-memory
+        index entry.
+        """
+        return sorted(
+            (dict(entry) for entry in self._workouts_index.values()),
+            key=lambda e: e.get("starts") or "",
+            reverse=True,
+        )
+
+    def known_workout(self, workout_id: int) -> dict[str, Any] | None:
+        """Look up a single workout in the index by id."""
+        entry = self._workouts_index.get(workout_id)
+        return dict(entry) if entry else None
 
     async def async_load_totals(self) -> None:
         """Rehydrate lifetime totals from the persistent store at setup time."""
@@ -620,20 +678,27 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             return None
 
     async def _refresh_manifest(self, recent: list[RecentWorkout], selected_id: int | None) -> None:
-        """Merge ``recent`` into the manifest; never raises.
+        """Merge ``recent`` into the manifest + in-memory index; never raises.
 
         Held under :attr:`_manifest_lock` so a parallel ``async_full_backfill``
         / cleanup / regular poll can't drop each other's entries via a
         read-modify-write race. The lock is async-only; the disk I/O still
         runs in the executor.
+
+        On success, ``async_update_listeners`` pushes the new index to the
+        workout-picker ``SelectEntity`` so the dropdown's options refresh
+        without waiting for the next poll cycle.
         """
         async with self._manifest_lock:
             try:
-                await self.hass.async_add_executor_job(
+                merged = await self.hass.async_add_executor_job(
                     _merge_and_write_manifest, self._geojson_dir, recent, selected_id
                 )
             except OSError as err:
                 _LOGGER.warning("Could not refresh picker manifest: %s", err)
+                return
+            self._workouts_index = merged
+        self.async_update_listeners()
 
     async def async_render_workout(
         self, workout_id: int | str, *, force: bool = False
@@ -910,7 +975,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         if removed_ids:
             async with self._manifest_lock:
                 try:
-                    await self.hass.async_add_executor_job(
+                    remaining = await self.hass.async_add_executor_job(
                         _prune_manifest,
                         self._geojson_dir,
                         removed_ids,
@@ -922,6 +987,9 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
                         len(removed_ids),
                         err,
                     )
+                else:
+                    self._workouts_index = remaining
+            self.async_update_listeners()
             _LOGGER.info(
                 "Cleanup: removed %d GeoJSON file(s) older than %d day(s)",
                 len(removed_ids),

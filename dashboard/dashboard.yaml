@@ -31,14 +31,26 @@ views:
             heading: Map
             heading_style: title
             icon: mdi:map-marker-path
+          # The picker is a SelectEntity now — drives the headline sensors
+          # AND the iframe below via ``workouts.json``. Pick any ride
+          # (indoor / manual / outdoor); if the chosen one has no track the
+          # iframe shows a friendly overlay instead of an empty map.
+          - type: entities
+            entities:
+              - entity: select.hawahooligan_workout_picker
+                name: Workout
+            state_color: false
+            grid_options:
+              columns: 12
+              rows: auto
           - type: iframe
             url: /local/hawahooligan/map.html
             # In sections view aspect_ratio is ignored — size via grid_options.
             grid_options:
               columns: 12
               rows: 9
-            # To open a specific workout instead of letting the picker drive,
-            # append ?id=<workout_id>:
+            # ``?id=<workout_id>`` deep-links a single workout and overrides
+            # the picker selection until the page reloads:
             # url: /local/hawahooligan/map.html?id=123456
 
       - type: grid

@@ -9,7 +9,7 @@ from homeassistant.const import Platform
 
 DOMAIN: Final = "hawahooligan"
 
-PLATFORMS: Final = (Platform.SENSOR,)
+PLATFORMS: Final = (Platform.SENSOR, Platform.SELECT)
 
 # Wahoo Cloud API
 API_BASE: Final = "https://api.wahooligan.com"
