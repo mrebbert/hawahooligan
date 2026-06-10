@@ -16,8 +16,10 @@ restore the right dropdown option.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -250,55 +252,130 @@ def _has_geojson(directory: Path, workout_id: int | str) -> bool:
     return _geojson_path(directory, workout_id).is_file()
 
 
-def _cleanup_geojson(directory: Path, cutoff_epoch: float) -> int:
-    """Blocking: delete ``*.geojson`` files older than ``cutoff_epoch``.
+def _cleanup_geojson(directory: Path, cutoff_epoch: float) -> set[int]:
+    """Blocking: delete per-workout ``<id>.geojson`` files older than ``cutoff_epoch``.
 
-    Returns the number of removed files. Missing dir → 0 (nothing to prune).
-    Per-file failures are skipped so one stuck file doesn't block the rest.
+    Returns the set of removed workout ids — empty set if the dir is missing
+    or nothing matched. Per-file failures are skipped so one stuck file
+    doesn't block the rest. The companion ``latest.geojson`` (re-written on
+    every poll) is intentionally excluded by the numeric-stem filter.
     """
     if not directory.is_dir():
-        return 0
-    removed = 0
+        return set()
+    removed: set[int] = set()
     for path in directory.glob("*.geojson"):
+        try:
+            workout_id = int(path.stem)
+        except ValueError:
+            # ``latest.geojson`` or any other non-numeric stem — leave it.
+            continue
         try:
             if path.stat().st_mtime < cutoff_epoch:
                 path.unlink()
-                removed += 1
+                removed.add(workout_id)
         except OSError:
-            # Skip permission errors / races with another writer — surface
-            # via the count, the caller can re-run later.
+            # Permission errors / races with another writer — re-runnable.
             continue
     return removed
 
 
-def _write_manifest(directory: Path, recent: list[RecentWorkout], selected_id: int | None) -> None:
-    """Blocking: rewrite the picker manifest from a fresh ``recent`` list.
+def _read_manifest_entries(directory: Path) -> dict[int, dict[str, Any]]:
+    """Blocking: load existing manifest, return ``{workout_id: entry}``.
 
-    Re-derives ``has_track`` from the filesystem so the manifest always agrees
-    with what's actually on disk, even if a workout's track gets cleared
-    between polls. ``selected_id`` is exported so a freshly-loaded viewer can
-    pre-select the right option without round-tripping HA.
+    Returns ``{}`` if the manifest is missing or malformed — the caller
+    rebuilds from the next listing, no data loss beyond the bad payload.
+    """
+    path = directory / MANIFEST_FILENAME
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    workouts = payload.get("workouts") if isinstance(payload, dict) else None
+    if not isinstance(workouts, list):
+        return {}
+    result: dict[int, dict[str, Any]] = {}
+    for entry in workouts:
+        if not isinstance(entry, dict):
+            continue
+        wid = entry.get("id")
+        if isinstance(wid, int):
+            result[wid] = entry
+    return result
+
+
+def _persist_manifest_atomic(
+    directory: Path,
+    entries_by_id: dict[int, dict[str, Any]],
+    selected_id: int | None,
+) -> None:
+    """Blocking: serialize the manifest via tmp+os.replace.
+
+    The viewer fetches ``workouts.json`` over ``/local/``; without the
+    rename trick a mid-write fetch would get a partially flushed file
+    and fail JSON parse. ``os.replace`` is POSIX-atomic — readers see
+    either the previous file or the new one, never a torn read. Always
+    refreshes ``has_track`` against the filesystem so a deleted track
+    (cleanup, manual rm) flips the flag automatically.
     """
     directory.mkdir(parents=True, exist_ok=True)
     entries: list[dict[str, Any]] = []
-    for r in recent:
-        entries.append(
-            {
-                "id": r.id,
-                "name": r.name,
-                "starts": r.starts,
-                "workout_type_id": r.workout_type_id,
-                "workout_type": r.workout_type_name,
-                "indoor": r.indoor,
-                "manual": r.manual,
-                "has_track": (directory / f"{r.id}.geojson").is_file(),
-            }
-        )
+    for entry in entries_by_id.values():
+        # Defensive copy — never mutate the caller's dict.
+        out = dict(entry)
+        out["has_track"] = (directory / f"{out['id']}.geojson").is_file()
+        entries.append(out)
+    entries.sort(key=lambda e: e.get("starts") or "", reverse=True)
     payload = json.dumps(
         {"workouts": entries, "selected_id": selected_id},
         separators=(",", ":"),
     )
-    (directory / MANIFEST_FILENAME).write_text(payload, encoding="utf-8")
+    target = directory / MANIFEST_FILENAME
+    tmp = directory / f"{MANIFEST_FILENAME}.tmp"
+    tmp.write_text(payload, encoding="utf-8")
+    os.replace(tmp, target)
+
+
+def _merge_and_write_manifest(
+    directory: Path,
+    recent: list[RecentWorkout],
+    selected_id: int | None,
+) -> None:
+    """Blocking: union ``recent`` into the existing manifest.
+
+    Older entries stay in the manifest unless ``_prune_manifest`` removes
+    them — that's the load-bearing piece that lets a ``full_backfill`` /
+    long-running install accumulate hundreds of workouts in the dropdown
+    instead of just the last 20 the recent-poll endpoint returns.
+    """
+    entries_by_id = _read_manifest_entries(directory)
+    for r in recent:
+        entries_by_id[r.id] = {
+            "id": r.id,
+            "name": r.name,
+            "starts": r.starts,
+            "workout_type_id": r.workout_type_id,
+            "workout_type": r.workout_type_name,
+            "indoor": r.indoor,
+            "manual": r.manual,
+            # Overwritten by ``_persist_manifest_atomic`` from the filesystem,
+            # but set here so debug-mode JSON dumps in the executor look sane.
+            "has_track": (directory / f"{r.id}.geojson").is_file(),
+        }
+    _persist_manifest_atomic(directory, entries_by_id, selected_id)
+
+
+def _prune_manifest(
+    directory: Path,
+    removed_ids: set[int],
+    selected_id: int | None,
+) -> None:
+    """Blocking: drop ``removed_ids`` from the manifest, atomic-write the rest."""
+    entries_by_id = _read_manifest_entries(directory)
+    for wid in removed_ids:
+        entries_by_id.pop(wid, None)
+    _persist_manifest_atomic(directory, entries_by_id, selected_id)
 
 
 class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
@@ -332,6 +409,10 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             _TOTALS_SCHEMA_VERSION,
             f"{DOMAIN}_totals_{entry.entry_id}",
         )
+        # Serializes manifest read-modify-write across the regular poll,
+        # backfill (recent + full), and cleanup paths so concurrent writers
+        # don't drop each other's entries on the floor.
+        self._manifest_lock = asyncio.Lock()
 
     @property
     def _geojson_dir(self) -> Path:
@@ -539,13 +620,20 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             return None
 
     async def _refresh_manifest(self, recent: list[RecentWorkout], selected_id: int | None) -> None:
-        """Rewrite the picker manifest in the executor; never raises."""
-        try:
-            await self.hass.async_add_executor_job(
-                _write_manifest, self._geojson_dir, recent, selected_id
-            )
-        except OSError as err:
-            _LOGGER.warning("Could not refresh picker manifest: %s", err)
+        """Merge ``recent`` into the manifest; never raises.
+
+        Held under :attr:`_manifest_lock` so a parallel ``async_full_backfill``
+        / cleanup / regular poll can't drop each other's entries via a
+        read-modify-write race. The lock is async-only; the disk I/O still
+        runs in the executor.
+        """
+        async with self._manifest_lock:
+            try:
+                await self.hass.async_add_executor_job(
+                    _merge_and_write_manifest, self._geojson_dir, recent, selected_id
+                )
+            except OSError as err:
+                _LOGGER.warning("Could not refresh picker manifest: %s", err)
 
     async def async_render_workout(
         self, workout_id: int | str, *, force: bool = False
@@ -758,6 +846,13 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
                     if with_tracks and data.file_url and not data.manual and not data.indoor:
                         await self._render(data.workout_id, data.file_url)
 
+                # Feed this page's listing into the picker manifest so the
+                # viewer dropdown grows live during the backfill — without
+                # this the dropdown would stay at the last 20 entries that
+                # the regular poll knows about.
+                recent_page = _build_recent_from_listing(workouts, self._geojson_dir)
+                await self._refresh_manifest(recent_page, self._selected_workout_id)
+
                 self._emit_backfill_event(
                     page=page,
                     processed=processed_total,
@@ -794,12 +889,14 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         return added_total
 
     async def async_cleanup_geojson(self, max_age_days: int) -> int:
-        """Prune ``*.geojson`` files in the cache directory older than ``max_age_days``.
+        """Prune ``<id>.geojson`` files older than ``max_age_days`` + sync the manifest.
 
         The cache (``<config>/www/hawahooligan/``) grows with every backfill
-        and ``render_workout`` call. This is the manual escape hatch — wired
-        to the ``hawahooligan.cleanup_geojson`` service so users can run a
-        nightly automation to cap disk usage.
+        and ``render_workout`` call. The matching picker-manifest entries
+        get dropped in lockstep so the viewer dropdown doesn't list rides
+        whose tracks have just vanished. Indoor / manual entries (which
+        never produce a track) are untouched — they don't have a file to
+        time-check.
 
         ``max_age_days`` must be >= 1 — the service-layer schema rejects
         anything below.
@@ -807,16 +904,30 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         Returns the number of removed files.
         """
         cutoff_epoch = time.time() - max_age_days * 86400
-        removed = await self.hass.async_add_executor_job(
+        removed_ids: set[int] = await self.hass.async_add_executor_job(
             _cleanup_geojson, self._geojson_dir, cutoff_epoch
         )
-        if removed:
+        if removed_ids:
+            async with self._manifest_lock:
+                try:
+                    await self.hass.async_add_executor_job(
+                        _prune_manifest,
+                        self._geojson_dir,
+                        removed_ids,
+                        self._selected_workout_id,
+                    )
+                except OSError as err:
+                    _LOGGER.warning(
+                        "Cleanup deleted %d file(s) but could not prune the picker manifest: %s",
+                        len(removed_ids),
+                        err,
+                    )
             _LOGGER.info(
                 "Cleanup: removed %d GeoJSON file(s) older than %d day(s)",
-                removed,
+                len(removed_ids),
                 max_age_days,
             )
-        return removed
+        return len(removed_ids)
 
     def _emit_backfill_event(self, *, page: int, processed: int, added: int, done: bool) -> None:
         self.hass.bus.async_fire(

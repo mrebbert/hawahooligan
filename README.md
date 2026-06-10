@@ -181,8 +181,9 @@ Lovelace iframe card.
 |---|---|
 | Default view | Renders `latest.geojson` (the most recent outdoor ride). |
 | Deep link | Append `?id=<workout_id>`, e.g. `/local/hawahooligan/map.html?id=12345`. |
-| Browse history | The dropdown in the top-right lists the last 20 rides. Picking one re-renders the map AND updates the headline sensors via the `select_workout` service. |
+| Browse history | The dropdown in the top-right lists every workout the integration has ever seen (regular polls add the last 20; `full_backfill` adds everything else). Picking one re-renders the map AND updates the headline sensors via the `select_workout` service. |
 | Indoor rides | Listed in the dropdown but disabled with `(no GPS)`. |
+| Stay in sync | `cleanup_geojson` removes manifest entries for any tracks it deletes, so the dropdown reflects what's actually on disk. Indoor / manual rows (no track to time-check) are untouched. |
 
 > The integration writes `<config>/www/hawahooligan/map.html` once per
 > setup. Customize it by editing the file directly **and** deleting the

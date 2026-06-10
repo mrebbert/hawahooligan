@@ -1,13 +1,13 @@
 """Regression: ``hawahooligan.cleanup_geojson`` deletes only stale tracks.
 
 Covers the new service end-to-end — service registration, schema
-defaults, coordinator dispatch, filesystem effect. Pre-populates the
-cache dir with two old + two fresh files and asserts only the old ones
-disappear.
+defaults, coordinator dispatch, filesystem effect, and the matching
+picker-manifest prune so the viewer dropdown stays in sync with disk.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.hawahooligan.const import DOMAIN, WWW_SUBPATH
+from custom_components.hawahooligan.const import DOMAIN, MANIFEST_FILENAME, WWW_SUBPATH
 from custom_components.hawahooligan.coordinator import WorkoutData
 
 from ._setup import oauth_implementation_patches
@@ -129,4 +129,66 @@ async def test_cleanup_geojson_service_handles_empty_dir(hass: HomeAssistant) ->
         "cleanup_geojson",
         {"config_entry_id": entry.entry_id},
         blocking=True,
+    )
+
+
+async def test_cleanup_geojson_service_prunes_manifest_for_removed_files(
+    hass: HomeAssistant,
+) -> None:
+    """Manifest entries for removed tracks vanish; surviving entries stay.
+
+    Indoor / manual entries never had a track on disk, so cleanup leaves
+    them alone — they're valid picker rows even without a map.
+    """
+    entry, geojson_dir = await _setup_and_get_dir(hass)
+
+    # Two stale outdoor rides (file + manifest entry) + one fresh outdoor
+    # + one indoor-without-file (manifest only) to assert the indoor row
+    # survives the cleanup.
+    stale_a = geojson_dir / "5001.geojson"
+    stale_b = geojson_dir / "5002.geojson"
+    fresh = geojson_dir / "5003.geojson"
+    for path in (stale_a, stale_b, fresh):
+        path.write_text("{}", encoding="utf-8")
+    _stamp(stale_a, _OLD_DAYS)
+    _stamp(stale_b, _OLD_DAYS)
+    _stamp(fresh, _FRESH_DAYS)
+
+    manifest_path = geojson_dir / MANIFEST_FILENAME
+    manifest_payload = {
+        "workouts": [
+            {"id": 5001, "name": "Old ride A", "indoor": False, "manual": False, "has_track": True},
+            {"id": 5002, "name": "Old ride B", "indoor": False, "manual": False, "has_track": True},
+            {"id": 5003, "name": "Fresh ride", "indoor": False, "manual": False, "has_track": True},
+            {
+                "id": 5004,
+                "name": "Indoor session",
+                "indoor": True,
+                "manual": False,
+                "has_track": False,
+            },
+        ],
+        "selected_id": None,
+    }
+    manifest_path.write_text(json.dumps(manifest_payload), encoding="utf-8")
+
+    await hass.services.async_call(
+        DOMAIN,
+        "cleanup_geojson",
+        {"max_age_days": 180, "config_entry_id": entry.entry_id},
+        blocking=True,
+    )
+
+    # Files: stale ones gone, fresh one kept.
+    assert not stale_a.exists()
+    assert not stale_b.exists()
+    assert fresh.exists()
+
+    # Manifest: 5001 + 5002 removed, 5003 kept, 5004 (indoor, never had a
+    # file) preserved as a valid picker row.
+    pruned = json.loads(manifest_path.read_text(encoding="utf-8"))
+    ids_left = {entry["id"] for entry in pruned["workouts"]}
+    assert ids_left == {5003, 5004}, (
+        f"manifest should keep 5003 (fresh outdoor) + 5004 (indoor, "
+        f"no-file): got {sorted(ids_left)}"
     )

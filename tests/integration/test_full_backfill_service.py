@@ -1,6 +1,6 @@
 """Regression: ``hawahooligan.full_backfill`` paginates + terminates + emits events.
 
-Three contracts pinned:
+Four contracts pinned:
 
 1. Pagination walks until the listing returns an empty ``workouts`` list.
 2. ``EVENT_BACKFILL_PROGRESS`` fires once per processed page (the final
@@ -8,17 +8,26 @@ Three contracts pinned:
 3. Every workout in the returned pages ends up in
    ``coordinator.totals`` — guards against a future refactor that drops
    the detail fetch on the page-loop edge.
+4. The picker manifest accumulates every page's workouts so the viewer
+   dropdown grows beyond the regular 20-recent cap.
 """
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import Event, HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.hawahooligan.const import DOMAIN, EVENT_BACKFILL_PROGRESS
+from custom_components.hawahooligan.const import (
+    DOMAIN,
+    EVENT_BACKFILL_PROGRESS,
+    MANIFEST_FILENAME,
+    WWW_SUBPATH,
+)
 from custom_components.hawahooligan.coordinator import WorkoutData
 
 from ._setup import oauth_implementation_patches
@@ -104,7 +113,10 @@ async def test_full_backfill_paginates_until_empty_and_fires_events(
         blocking=True,
     )
     # Service is fire-and-forget — wait for the background task to finish.
-    await hass.async_block_till_done()
+    # ``wait_background_tasks=True`` is load-bearing: HA's default
+    # ``async_block_till_done`` only drains foreground work, so without
+    # this the backfill task can still be mid-page when assertions fire.
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     # Three pages = three listing calls. Three workouts = three detail calls.
     assert mock_api.async_get_workouts.call_count == 3, (
@@ -130,3 +142,60 @@ async def test_full_backfill_paginates_until_empty_and_fires_events(
     assert progress_events[1]["done"] is False
     assert progress_events[2]["done"] is True
     assert progress_events[2]["added"] == 3
+
+
+async def test_full_backfill_grows_picker_manifest(hass: HomeAssistant) -> None:
+    """Backfill writes every page's workouts into ``workouts.json``.
+
+    Without the per-page manifest write, the dropdown stays capped at
+    the 20 entries the regular poll's recent-listing endpoint returns —
+    making ``full_backfill`` useless from the viewer's perspective.
+    """
+    page_listings = [
+        {
+            "workouts": [
+                {"id": 101, "name": "Morning ride", "starts": "2026-06-01T07:00:00Z"},
+                {"id": 102, "name": "Evening ride", "starts": "2026-06-01T18:00:00Z"},
+            ]
+        },
+        {
+            "workouts": [
+                {"id": 103, "name": "Weekend long", "starts": "2026-06-08T09:00:00Z"},
+            ]
+        },
+        {"workouts": []},
+    ]
+    detail_payloads = {
+        wid: {"id": wid, "workout_summary": {"distance": 10000}} for wid in (101, 102, 103)
+    }
+
+    mock_api = MagicMock()
+    mock_api.async_get_workouts = AsyncMock(side_effect=page_listings)
+    mock_api.async_get_workout = AsyncMock(
+        side_effect=lambda workout_id: detail_payloads[workout_id]
+    )
+
+    entry = await _setup_entry(hass, mock_api)
+
+    await hass.services.async_call(
+        DOMAIN,
+        "full_backfill",
+        {
+            "config_entry_id": entry.entry_id,
+            "with_tracks": False,
+            "max_calls_per_window": 100,
+            "window_seconds": 300,
+            "max_pages": 50,
+        },
+        blocking=True,
+    )
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    manifest_path = Path(hass.config.path(*WWW_SUBPATH)) / MANIFEST_FILENAME
+    assert manifest_path.is_file(), "manifest never written"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    ids_in_manifest = {entry["id"] for entry in payload.get("workouts", [])}
+    assert ids_in_manifest == {101, 102, 103}, (
+        f"manifest only contains {sorted(ids_in_manifest)} — full_backfill "
+        f"did not feed all pages into the picker"
+    )

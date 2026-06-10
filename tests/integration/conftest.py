@@ -16,9 +16,14 @@ Then run only the integration tests::
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Generator
+from pathlib import Path
 
 import pytest
+from homeassistant.core import HomeAssistant
+
+from custom_components.hawahooligan.const import WWW_SUBPATH
 
 
 @pytest.fixture(autouse=True)
@@ -30,4 +35,20 @@ def auto_enable_custom_integrations(
     Without this fixture HA refuses to load the integration during tests
     (it only loads built-in components by default).
     """
+    yield
+
+
+@pytest.fixture(autouse=True)
+def reset_geojson_dir(hass: HomeAssistant) -> Generator[None]:
+    """Wipe ``<testing_config>/www/hawahooligan/`` before each test.
+
+    ``pytest-homeassistant-custom-component`` reuses the same
+    ``testing_config`` directory across tests, so a leftover
+    ``workouts.json`` or stray ``<id>.geojson`` from one test can
+    contaminate the next. The accumulator manifest makes this
+    especially noisy — clean it eagerly.
+    """
+    target = Path(hass.config.path(*WWW_SUBPATH))
+    if target.exists():
+        shutil.rmtree(target, ignore_errors=True)
     yield
