@@ -8,6 +8,19 @@
 
 > **Your Wahoo rides as native Home Assistant entities — with the GPS track on a map you can drop into any dashboard.**
 
+> [!WARNING]
+> **Early-stage software — use at your own risk.**
+> HAWahooligan is in active 0.x development and still shaped by the
+> author's own daily use. Expect breaking changes between minor
+> versions, occasional schema migrations, and the odd rough edge —
+> entity ids, services, and the dashboard YAML may still move around.
+> The integration is read-only against the Wahoo Cloud API (no writes,
+> no deletions) so the blast radius on your Wahoo account is bounded,
+> but no warranty is implied: review changes before installing, pin a
+> known-good release if you depend on stability, and please report
+> anything that surprises you via the [issue
+> tracker](https://github.com/mrebbert/hawahooligan/issues).
+
 HAWahooligan polls the [Wahoo Cloud API](https://cloud-api.wahooligan.com/),
 exposes the most recent ride's summary as sensors (distance, duration,
 power, heart rate, TSS, …), renders the FIT file as a GeoJSON track, and
