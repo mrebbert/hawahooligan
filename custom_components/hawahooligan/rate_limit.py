@@ -1,11 +1,21 @@
-"""Rolling-window rate-limit budget for the full-history backfill.
+"""Rate-limit helpers for the backfill loops.
 
-Pure Python, no Home Assistant imports — Tier-1 testable.
+Pure Python, no Home Assistant imports — Tier-1 testable. Two
+complementary primitives:
 
-Wahoo's Sandbox tier caps detail calls at 25 per 5-minute window. The
-integration defaults to a budget of 20 per 300 s window so the regular
-15-minute poll has room to slip through alongside a long-running
-backfill.
+* :class:`RateLimitBudget` is the *positive* side: it paces outbound
+  calls against a rolling window so we don't trip the 5-minute cap in
+  the first place.
+* :class:`ConsecutiveLimitGuard` is the *negative* side: it counts
+  back-to-back 429s and tells the caller when to bail. The 5-min budget
+  can't see Wahoo's hourly / daily caps, so an exhausted account just
+  keeps 429-ing every detail call until the day resets — the guard
+  stops the loop before it floods Wahoo with hopeless requests.
+
+Both have shipped as patterns scattered across the coordinator;
+consolidating them here keeps the two backfill loops
+(``async_backfill_recent``, ``async_full_backfill``) honest with each
+other — a fix to the bail-out shape only needs to land once.
 """
 
 from __future__ import annotations
@@ -51,3 +61,51 @@ class RateLimitBudget:
                 wait,
             )
             await asyncio.sleep(max(wait, 1.0))
+
+
+class ConsecutiveLimitGuard:
+    """Tracks back-to-back 429 hits and signals when to bail.
+
+    Wahoo's Sandbox tier enforces three caps (25 / 5-min, 100 / hour,
+    250 / day). The :class:`RateLimitBudget` paces against the 5-min
+    cap; this guard is the safety net for the larger windows — once
+    Wahoo starts 429-ing every detail call back, the loop should stop
+    burning quota that hasn't come back yet.
+
+    ``threshold`` defaults to 3 because that's the strike count both
+    ``async_backfill_recent`` (0.7.5) and ``async_full_backfill`` (0.7.14)
+    landed on through independent live-debug rounds — keeping the
+    default stable means existing tests + production logs still apply.
+    """
+
+    __slots__ = ("_strikes", "_threshold")
+
+    def __init__(self, threshold: int = 3) -> None:
+        self._strikes = 0
+        self._threshold = threshold
+
+    @property
+    def threshold(self) -> int:
+        """Strike count at which :meth:`record_failure` flips to ``True``."""
+        return self._threshold
+
+    @property
+    def strikes(self) -> int:
+        """Current consecutive 429 count — useful for log lines."""
+        return self._strikes
+
+    def record_failure(self, status_code: int | None) -> bool:
+        """Note an API failure; return ``True`` when the loop should break.
+
+        Non-429 failures reset the strike counter — they're an isolated
+        hiccup, not the rate-limit shape.
+        """
+        if status_code != 429:
+            self._strikes = 0
+            return False
+        self._strikes += 1
+        return self._strikes >= self._threshold
+
+    def record_success(self) -> None:
+        """A clean call resets the strike counter."""
+        self._strikes = 0

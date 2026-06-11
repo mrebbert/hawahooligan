@@ -109,7 +109,10 @@ RECENT_COUNT: Final = 20
 # Filename of the picker manifest under ``<config>/www/hawahooligan/``. The
 # bundled Leaflet viewer (``web/map.html``) reads this to populate its
 # dropdown without contacting HA's API surface.
-MANIFEST_FILENAME: Final = "workouts.json"
+# Re-exported from :mod:`.manifest` so older import sites (and integration
+# tests) keep working. The on-disk shape now lives in ``manifest.py`` next
+# to the code that owns it.
+from .manifest import MANIFEST_FILENAME as MANIFEST_FILENAME  # noqa: E402
 
 # Workout-type table from the Wahoo Cloud API "Data Types" section. The
 # `location` value is the source of truth for indoor/outdoor classification —

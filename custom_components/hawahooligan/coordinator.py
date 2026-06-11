@@ -17,9 +17,7 @@ restore the right dropdown option.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -40,7 +38,6 @@ from .const import (
     FULL_BACKFILL_DEFAULT_WINDOW_SECONDS,
     FULL_BACKFILL_MAX_PAGES,
     FULL_BACKFILL_PER_PAGE,
-    MANIFEST_FILENAME,
     POWER_ZONES_UPDATE_INTERVAL,
     RECENT_COUNT,
     UPDATE_INTERVAL,
@@ -50,34 +47,18 @@ from .const import (
     workout_type_name,
 )
 from .fit import parse_fit_to_geojson, write_geojson
+from .manifest import (
+    RecentWorkout,
+    merge_and_write_manifest,
+    prune_manifest,
+    read_manifest_entries,
+)
 from .power_zones import PowerZonesData, parse_power_zones
-from .rate_limit import RateLimitBudget
+from .rate_limit import ConsecutiveLimitGuard, RateLimitBudget
 from .totals import SCHEMA_VERSION as _TOTALS_SCHEMA_VERSION
 from .totals import LifetimeTotals, WorkoutContribution
 
 _LOGGER = logging.getLogger(__name__)
-
-
-@dataclass(slots=True)
-class RecentWorkout:
-    """Lean summary of one entry in the rolling recent-workouts window.
-
-    Picker UIs only need enough to render a "27 Apr — Morning ride" option and
-    look up the GeoJSON on disk; the full :class:`WorkoutData` is overkill
-    here. ``has_track`` records whether the corresponding ``<id>.geojson`` has
-    actually been rendered — indoor and manual entries stay listed for context
-    but mark this ``False`` so the viewer can disable them.
-    """
-
-    id: int
-    name: str | None
-    starts: str | None
-    workout_type_id: int | None
-    workout_type_name: str | None
-    indoor: bool
-    manual: bool
-    has_track: bool
-    duration_min: float | None = None
 
 
 @dataclass(slots=True)
@@ -282,121 +263,6 @@ def _cleanup_geojson(directory: Path, cutoff_epoch: float) -> set[int]:
     return removed
 
 
-def _read_manifest_entries(directory: Path) -> dict[int, dict[str, Any]]:
-    """Blocking: load existing manifest, return ``{workout_id: entry}``.
-
-    Returns ``{}`` if the manifest is missing or malformed — the caller
-    rebuilds from the next listing, no data loss beyond the bad payload.
-    """
-    path = directory / MANIFEST_FILENAME
-    if not path.is_file():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    workouts = payload.get("workouts") if isinstance(payload, dict) else None
-    if not isinstance(workouts, list):
-        return {}
-    result: dict[int, dict[str, Any]] = {}
-    for entry in workouts:
-        if not isinstance(entry, dict):
-            continue
-        wid = entry.get("id")
-        if isinstance(wid, int):
-            result[wid] = entry
-    return result
-
-
-def _persist_manifest_atomic(
-    directory: Path,
-    entries_by_id: dict[int, dict[str, Any]],
-    selected_id: int | None,
-) -> None:
-    """Blocking: serialize the manifest via tmp+os.replace.
-
-    The viewer fetches ``workouts.json`` over ``/local/``; without the
-    rename trick a mid-write fetch would get a partially flushed file
-    and fail JSON parse. ``os.replace`` is POSIX-atomic — readers see
-    either the previous file or the new one, never a torn read. Always
-    refreshes ``has_track`` against the filesystem so a deleted track
-    (cleanup, manual rm) flips the flag automatically.
-    """
-    directory.mkdir(parents=True, exist_ok=True)
-    entries: list[dict[str, Any]] = []
-    for entry in entries_by_id.values():
-        # Defensive copy — never mutate the caller's dict.
-        out = dict(entry)
-        out["has_track"] = (directory / f"{out['id']}.geojson").is_file()
-        entries.append(out)
-    entries.sort(key=lambda e: e.get("starts") or "", reverse=True)
-    payload = json.dumps(
-        {"workouts": entries, "selected_id": selected_id},
-        separators=(",", ":"),
-    )
-    target = directory / MANIFEST_FILENAME
-    tmp = directory / f"{MANIFEST_FILENAME}.tmp"
-    tmp.write_text(payload, encoding="utf-8")
-    os.replace(tmp, target)
-
-
-def _merge_and_write_manifest(
-    directory: Path,
-    recent: list[RecentWorkout],
-    selected_id: int | None,
-) -> dict[int, dict[str, Any]]:
-    """Blocking: union ``recent`` into the existing manifest, return merged set.
-
-    Older entries stay in the manifest unless ``_prune_manifest`` removes
-    them — that's the load-bearing piece that lets a ``full_backfill`` /
-    long-running install accumulate hundreds of workouts in the dropdown
-    instead of just the last 20 the recent-poll endpoint returns.
-
-    Returning the merged ``{id: entry}`` dict lets the caller mirror the
-    current manifest into in-memory state without a second read-from-disk
-    — the workout picker entity needs that for ``options``.
-    """
-    entries_by_id = _read_manifest_entries(directory)
-    for r in recent:
-        new_entry = {
-            "id": r.id,
-            "name": r.name,
-            "starts": r.starts,
-            "workout_type_id": r.workout_type_id,
-            "workout_type": r.workout_type_name,
-            "indoor": r.indoor,
-            "manual": r.manual,
-            # Overwritten by ``_persist_manifest_atomic`` from the filesystem,
-            # but set here so debug-mode JSON dumps in the executor look sane.
-            "has_track": (directory / f"{r.id}.geojson").is_file(),
-        }
-        if r.duration_min is not None:
-            new_entry["duration_min"] = r.duration_min
-        else:
-            # Preserve any older duration we'd previously stored for this id —
-            # the listing endpoint occasionally omits ``duration_active_accum``
-            # but the detail endpoint had it during render time.
-            existing = entries_by_id.get(r.id, {})
-            if "duration_min" in existing:
-                new_entry["duration_min"] = existing["duration_min"]
-        entries_by_id[r.id] = new_entry
-    _persist_manifest_atomic(directory, entries_by_id, selected_id)
-    return entries_by_id
-
-
-def _prune_manifest(
-    directory: Path,
-    removed_ids: set[int],
-    selected_id: int | None,
-) -> dict[int, dict[str, Any]]:
-    """Blocking: drop ``removed_ids`` from the manifest, return what's left."""
-    entries_by_id = _read_manifest_entries(directory)
-    for wid in removed_ids:
-        entries_by_id.pop(wid, None)
-    _persist_manifest_atomic(directory, entries_by_id, selected_id)
-    return entries_by_id
-
-
 class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
     """Polls Wahoo Cloud and serves the currently-selected workout."""
 
@@ -462,7 +328,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         """
         try:
             self._workouts_index = await self.hass.async_add_executor_job(
-                _read_manifest_entries, self._geojson_dir
+                read_manifest_entries, self._geojson_dir
             )
         except OSError as err:
             _LOGGER.warning("Could not preload workouts index: %s", err)
@@ -773,7 +639,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         async with self._manifest_lock:
             try:
                 merged = await self.hass.async_add_executor_job(
-                    _merge_and_write_manifest, self._geojson_dir, recent, selected_id
+                    merge_and_write_manifest, self._geojson_dir, recent, selected_id
                 )
             except OSError as err:
                 _LOGGER.warning("Could not refresh picker manifest: %s", err)
@@ -850,8 +716,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         # hourly or daily cap, not the rolling 5-min one) is exhausted. Keep
         # trying just floods the log without making progress, so bail out
         # after a handful and leave the next poll to retry the listing call.
-        consecutive_429s = 0
-        max_consecutive_429s = 3
+        guard = ConsecutiveLimitGuard()
         for workout in workouts:
             workout_id = workout.get("id")
             if workout_id is None:
@@ -869,19 +734,17 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
                 detail = await self._api.async_get_workout(workout_id)
             except WahooApiError as err:
                 _LOGGER.warning("Backfill detail fetch for %s failed: %s", workout_id, err)
-                if err.status_code == 429:
-                    consecutive_429s += 1
-                    if consecutive_429s >= max_consecutive_429s:
-                        _LOGGER.warning(
-                            "Backfill aborting after %d consecutive 429s — Wahoo's "
-                            "larger rate-limit window is exhausted; the next regular "
-                            "poll will resume work once the quota recovers (Sandbox "
-                            "tier resets daily at 00:00 UTC)",
-                            consecutive_429s,
-                        )
-                        break
+                if guard.record_failure(err.status_code):
+                    _LOGGER.warning(
+                        "Backfill aborting after %d consecutive 429s — Wahoo's "
+                        "larger rate-limit window is exhausted; the next regular "
+                        "poll will resume work once the quota recovers (Sandbox "
+                        "tier resets daily at 00:00 UTC)",
+                        guard.strikes,
+                    )
+                    break
                 continue
-            consecutive_429s = 0
+            guard.record_success()
 
             data = _build_workout_data(detail)
             if not totals_recorded:
@@ -927,11 +790,10 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         processed_total = 0
         # Hourly / daily rate-limit exhaustion shows up as detail calls
         # 429-ing back to back — the 5-min budget slows the rolling window
-        # but can't see the larger caps. Match the bail-out shape that
-        # ``async_backfill_recent`` already uses so the loop stops floods
-        # before they trigger Wahoo's lockouts.
-        consecutive_429s = 0
-        max_consecutive_429s = 3
+        # but can't see the larger caps. Same bail-out shape as
+        # ``async_backfill_recent`` uses, sharing one :class:`ConsecutiveLimitGuard`
+        # instance — keeps both backfill loops honest with each other.
+        guard = ConsecutiveLimitGuard()
 
         try:
             for page in range(1, max_pages + 1):
@@ -995,29 +857,27 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
                             workout_id,
                             err,
                         )
-                        if err.status_code == 429:
-                            consecutive_429s += 1
-                            if consecutive_429s >= max_consecutive_429s:
-                                _LOGGER.warning(
-                                    "Full backfill aborting after %d consecutive "
-                                    "429s — Wahoo's hourly or daily cap is "
-                                    "exhausted. %d workouts already added; "
-                                    "re-run after the next quota reset (Sandbox: "
-                                    "00:00 UTC daily) to pick up where we left "
-                                    "off — workouts already in the totals are "
-                                    "skipped automatically.",
-                                    consecutive_429s,
-                                    added_total,
-                                )
-                                self._emit_backfill_event(
-                                    page=page,
-                                    processed=processed_total,
-                                    added=added_total,
-                                    done=True,
-                                )
-                                return added_total
+                        if guard.record_failure(err.status_code):
+                            _LOGGER.warning(
+                                "Full backfill aborting after %d consecutive "
+                                "429s — Wahoo's hourly or daily cap is "
+                                "exhausted. %d workouts already added; "
+                                "re-run after the next quota reset (Sandbox: "
+                                "00:00 UTC daily) to pick up where we left "
+                                "off — workouts already in the totals are "
+                                "skipped automatically.",
+                                guard.strikes,
+                                added_total,
+                            )
+                            self._emit_backfill_event(
+                                page=page,
+                                processed=processed_total,
+                                added=added_total,
+                                done=True,
+                            )
+                            return added_total
                         continue
-                    consecutive_429s = 0
+                    guard.record_success()
 
                     data = _build_workout_data(detail)
                     if workout_id not in self._totals.workouts and await self._record_totals(data):
@@ -1092,7 +952,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             async with self._manifest_lock:
                 try:
                     remaining = await self.hass.async_add_executor_job(
-                        _prune_manifest,
+                        prune_manifest,
                         self._geojson_dir,
                         removed_ids,
                         self._selected_workout_id,
