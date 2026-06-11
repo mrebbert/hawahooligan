@@ -92,11 +92,13 @@ full_backfill:
     max_calls_per_window:
       name: Max calls per window
       description: >-
-        Rate-limit budget. Sandbox = 25 / 5-min; the default 20 leaves room
-        for the regular 15-min poll to slip through. Production tier (200 /
-        5-min) can run much faster.
+        Rate-limit budget for the rolling window. Sandbox has THREE caps —
+        25 / 5-min AND 100 / hour AND 250 / day; default 8 keeps you under
+        the hourly cap (≈ 96 calls/hour) with headroom for the regular
+        15-min poll. Production tier (200 / 5-min, 1000 / hour, 5000 / day)
+        can bump this to ~50 to run much faster.
       required: false
-      default: 20
+      default: 8
       selector:
         number:
           min: 1

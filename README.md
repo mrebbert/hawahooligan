@@ -196,7 +196,7 @@ Lovelace iframe card.
 | Deep link | Append `?id=<workout_id>`, e.g. `/local/hawahooligan/map.html?id=12345`. |
 | Browse history | The `select.hawahooligan_workout_picker` dropdown (shipped as a card right above the iframe) lists every workout the integration has ever seen — regular polls add the last 20, `full_backfill` adds everything else. Picking one drives the headline sensors AND the iframe in one go. |
 | Auto-render on pick | Since 0.7.13, picking an outdoor / non-manual ride whose `.geojson` isn't on disk yet kicks off a background render (1 detail API call + FIT download; FIT downloads don't count against the Wahoo rate limit). The map fills within seconds — no manual `render_workout` service call needed. |
-| Bulk-render history | If you want every historic outdoor track on disk in one shot, call `hawahooligan.full_backfill` with `with_tracks: true`. Default budget (20 detail calls / 5 min) stays under the Sandbox quota; pass `max_calls_per_window: 150` on the production tier to run faster. |
+| Bulk-render history | If you want every historic outdoor track on disk in one shot, call `hawahooligan.full_backfill` with `with_tracks: true`. Default budget (8 detail calls / 5 min ≈ 96 / hour) stays under the Sandbox hourly cap; pass `max_calls_per_window: 50` on the production tier to run much faster. If your daily Sandbox quota is exhausted mid-run the backfill bails after 3 consecutive 429s and resumes from where it left off the next time you call it (workouts already in totals are skipped). |
 | Indoor / manual rides | Pickable like any other workout. Sensors update; the iframe shows a friendly "no GPS track" overlay instead of an empty map. No render is attempted (there's nothing to render). |
 | Stay in sync | `cleanup_geojson` removes manifest entries for any tracks it deletes, so the dropdown reflects what's actually on disk. Indoor / manual rows (no track to time-check) are untouched. |
 
@@ -214,7 +214,7 @@ Lovelace iframe card.
 |---|---|
 | `hawahooligan.select_workout` | Pin the integration to a workout id (or pass `"latest"` to release the pin). Sensors and map both follow. The viewer dropdown calls this automatically. |
 | `hawahooligan.render_workout` | Render the GeoJSON for an arbitrary workout id — useful for rides older than the 20-ride backfill window. |
-| `hawahooligan.full_backfill` | Paginate through the user's entire Wahoo history and feed the lifetime totals. Rate-limit aware (sandbox-safe defaults of 20 calls / 300 s). Fires `hawahooligan_full_backfill_progress` events per page so you can wire a notification. |
+| `hawahooligan.full_backfill` | Paginate through the user's entire Wahoo history and feed the lifetime totals. Rate-limit aware: Sandbox-safe default of 8 calls / 5 min (≈ 96 / hour), bails after 3 consecutive 429s so an exhausted daily quota stops floods. Pass `max_calls_per_window: 50` on the production tier. Fires `hawahooligan_full_backfill_progress` events per page so you can wire a notification. |
 | `hawahooligan.cleanup_geojson` | Prune cached GeoJSON track files in `<config>/www/hawahooligan/` older than `max_age_days` (default 180). Wire to a nightly automation to cap unbounded growth from backfills + `render_workout` calls. |
 
 ---
@@ -340,13 +340,28 @@ Your config entry, entity history, and lifetime totals all survive.
 <details>
 <summary><strong>HTTP 429 — Too Many Requests</strong></summary>
 
-Wahoo's Sandbox tier limits to 25 calls per 5 min, 100 per hour, **250
-per day**. The integration uses a rolling-window budget on the
-backfill and a 5-minute retry on the API client — but if you upgrade,
-restart a few times, AND run the full-history backfill all on the
-same day, you can blow through the daily cap. Wait until 00:00 UTC for
-the daily reset, or upgrade your Wahoo Developer App to Production
-(200 / 5 min, 1000 / h, 5000 / day) via the Wahoo Developer Portal.
+Wahoo's Sandbox tier enforces THREE caps simultaneously: **25 calls / 5 min**,
+**100 / hour**, **250 / day**. The integration uses a rolling-window budget
+on the backfill, retries once with `Retry-After` on the API client, and
+bails out after 3 consecutive 429s on both `async_backfill_recent` and
+`async_full_backfill` so a wedged loop can't burn the entire daily
+quota. The default `full_backfill` budget (8 / 5 min ≈ 96 / hour as of
+0.7.14) is sized to stay under the hourly cap; lower values (e.g.
+`max_calls_per_window: 4`) leave more headroom for the regular 15-min
+poll on a busy account.
+
+If you upgrade, restart a few times, AND run the full-history backfill
+on the same day, you can still exhaust the daily 250-call quota. The
+backfill will bail (see logs) and pick up where it left off on the next
+run — workouts already in `coordinator.totals` are skipped automatically.
+Wait until 00:00 UTC for the daily reset, or upgrade your Wahoo Developer
+App to Production (200 / 5 min, 1000 / h, 5000 / day) via the Wahoo
+Developer Portal.
+
+**Picker shows "no GPS track" overlay and the log says
+`On-demand render for outdoor workout N returned no track`:** same
+symptom — the auto-render's single detail call got 429'd. Wait for the
+quota reset and pick the workout again; the auto-render is idempotent.
 
 </details>
 

@@ -83,10 +83,16 @@ CLEANUP_DEFAULT_MAX_AGE_DAYS: Final = 180
 FULL_BACKFILL_PER_PAGE: Final = 50
 
 # Sandbox-safe defaults for the rolling-window budget. Wahoo's Sandbox tier
-# caps detail calls at 25 per 5-minute window; with a budget of 20 per
-# 300 s window we have headroom for the regular 15-min poll to still slip
-# through without tripping a 429.
-FULL_BACKFILL_DEFAULT_BUDGET: Final = 20
+# enforces THREE caps: 25 calls / 5 min, 100 calls / hour, 250 calls / day.
+# The 5-min budget alone modelled the smallest window but not the hourly
+# one — 0.7.13's default of 20/5min implied 240/hr (way over 100/hr) and
+# users on Sandbox kept exhausting their hourly cap mid-backfill. 8/300s
+# pencils out to 96/hr, just under the hourly ceiling, leaving headroom
+# for the regular 15-min poll + an auto-render or two. Production-tier
+# users (200/5min, 1000/hr, 5000/day) can pass higher values via the
+# service call without thinking — even 50/300s = 600/hr stays comfortably
+# below their hourly ceiling.
+FULL_BACKFILL_DEFAULT_BUDGET: Final = 8
 FULL_BACKFILL_DEFAULT_WINDOW_SECONDS: Final = 300
 
 # Safety guard: stop after this many pages even if the API keeps returning

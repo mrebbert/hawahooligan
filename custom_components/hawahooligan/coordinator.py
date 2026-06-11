@@ -583,16 +583,32 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         return not entry.get("has_track")
 
     async def _render_selected_workout(self, workout_id: int) -> None:
-        """Render ``<id>.geojson`` then re-write the manifest so ``has_track`` flips."""
+        """Render ``<id>.geojson`` then re-write the manifest so ``has_track`` flips.
+
+        Emits an explicit warning when the render returns ``None`` for a
+        workout the index says SHOULD have a track — without it the user
+        just sees the no-GPS overlay and has no idea whether the render
+        was even attempted. The most common cause in the wild is the
+        Wahoo Sandbox quota being exhausted; the warning names the
+        symptom and points at the recovery path (wait for reset).
+        """
         try:
             url = await self.async_render_workout(workout_id)
         except Exception as err:  # noqa: BLE001 — on-demand render must not crash select
             _LOGGER.warning("On-demand render for workout %d failed: %s", workout_id, err)
             return
         if url is None:
-            # The workout turned out to be indoor / manual / no track once
-            # the detail was fetched — nothing to do, the manifest is already
-            # accurate and the viewer keeps showing the no-GPS overlay.
+            entry = self._workouts_index.get(workout_id)
+            if entry and not entry.get("indoor") and not entry.get("manual"):
+                _LOGGER.warning(
+                    "On-demand render for outdoor workout %d returned no "
+                    "track. Most likely the Wahoo Cloud API rate-limited "
+                    "the detail call (Sandbox tier: 25 / 5-min, 100 / hour, "
+                    "250 / day — resets at 00:00 UTC daily). Pick the "
+                    "workout again after the next quota reset, or call "
+                    "hawahooligan.render_workout from Developer Tools.",
+                    workout_id,
+                )
             return
         # Re-write the manifest so the viewer's next poll sees ``has_track``
         # as True and renders the track instead of the overlay.
@@ -900,6 +916,13 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         budget = RateLimitBudget(max_calls_per_window, window_seconds)
         added_total = 0
         processed_total = 0
+        # Hourly / daily rate-limit exhaustion shows up as detail calls
+        # 429-ing back to back — the 5-min budget slows the rolling window
+        # but can't see the larger caps. Match the bail-out shape that
+        # ``async_backfill_recent`` already uses so the loop stops floods
+        # before they trigger Wahoo's lockouts.
+        consecutive_429s = 0
+        max_consecutive_429s = 3
 
         try:
             for page in range(1, max_pages + 1):
@@ -915,6 +938,12 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
                         page,
                         err,
                     )
+                    if err.status_code == 429:
+                        _LOGGER.warning(
+                            "Full backfill aborting on listing 429 — Wahoo's "
+                            "hourly or daily cap is exhausted. Re-run after "
+                            "the next quota reset (Sandbox: 00:00 UTC daily)."
+                        )
                     break
 
                 workouts = listing.get("workouts") or []
@@ -957,7 +986,29 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
                             workout_id,
                             err,
                         )
+                        if err.status_code == 429:
+                            consecutive_429s += 1
+                            if consecutive_429s >= max_consecutive_429s:
+                                _LOGGER.warning(
+                                    "Full backfill aborting after %d consecutive "
+                                    "429s — Wahoo's hourly or daily cap is "
+                                    "exhausted. %d workouts already added; "
+                                    "re-run after the next quota reset (Sandbox: "
+                                    "00:00 UTC daily) to pick up where we left "
+                                    "off — workouts already in the totals are "
+                                    "skipped automatically.",
+                                    consecutive_429s,
+                                    added_total,
+                                )
+                                self._emit_backfill_event(
+                                    page=page,
+                                    processed=processed_total,
+                                    added=added_total,
+                                    done=True,
+                                )
+                                return added_total
                         continue
+                    consecutive_429s = 0
 
                     data = _build_workout_data(detail)
                     if workout_id not in self._totals.workouts and await self._record_totals(data):
