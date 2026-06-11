@@ -363,6 +363,13 @@ Developer Portal.
 symptom — the auto-render's single detail call got 429'd. Wait for the
 quota reset and pick the workout again; the auto-render is idempotent.
 
+**You picked a workout that's not in the dropdown via the
+`hawahooligan.select_workout` service:** as of 0.7.15 the auto-render
+also fires for ids that aren't yet in the picker manifest (e.g.
+historic workouts your account knows about but that pre-date the
+manifest accumulator that landed in 0.7.10). Cost is the same single
+detail call; invalid ids surface as a single 404 with no follow-up.
+
 </details>
 
 <details>

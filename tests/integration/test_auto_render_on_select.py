@@ -163,19 +163,24 @@ async def test_latest_sentinel_skips_render(hass: HomeAssistant) -> None:
     render_spy.assert_not_awaited()
 
 
-async def test_unknown_id_skips_render(hass: HomeAssistant) -> None:
-    """Don't auto-render workouts the index doesn't know about.
+async def test_unknown_id_triggers_render(hass: HomeAssistant) -> None:
+    """Workouts not in the index get a render too — the detail decides.
 
-    The index lookup is how we tell indoor / manual from outdoor without
-    spending a detail call. An unknown id forces a fallback: let the
-    user trigger ``hawahooligan.render_workout`` explicitly.
+    Service-call picks (``hawahooligan.select_workout`` with a bare id
+    for a workout that pre-dates the manifest accumulator) used to
+    silently skip the render. From 0.7.15 the render fires; the
+    ``async_render_workout`` call short-circuits cheap on indoor /
+    manual / no-file_url detail responses and surfaces an invalid id
+    as a single 404 — same cost we'd pay any other way to know.
     """
     entry = await _setup_entry(hass)
     coordinator = entry.runtime_data.coordinator
     _seed(coordinator)
 
-    with patch.object(coordinator, "async_render_workout", new=AsyncMock()) as render_spy:
+    with patch.object(
+        coordinator, "async_render_workout", new=AsyncMock(return_value=None)
+    ) as render_spy:
         await coordinator.async_select_workout(99999)
         await hass.async_block_till_done()
 
-    render_spy.assert_not_awaited()
+    render_spy.assert_awaited_once_with(99999)

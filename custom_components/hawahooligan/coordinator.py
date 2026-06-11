@@ -568,16 +568,25 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         await self.async_request_refresh()
 
     def _should_render_on_select(self, workout_id: int | None) -> bool:
-        """Decide whether to kick off an on-demand render for this pick."""
+        """Decide whether to kick off an on-demand render for this pick.
+
+        Unknown workout ids (picks via the ``hawahooligan.select_workout``
+        service for a workout that pre-dates the manifest's accumulator
+        history) also trigger the render — ``async_render_workout`` is
+        cheap and idempotent: indoor / manual / no-file_url detail
+        responses short-circuit before the FIT download, and an invalid
+        id surfaces as a single 404 with no follow-up cost.
+        """
         if workout_id is None:
             return False
         entry = self._workouts_index.get(workout_id)
         if entry is None:
-            # Unknown id — let the user fall back to the explicit
-            # ``hawahooligan.render_workout`` service if they want it
-            # rendered. Auto-rendering blind would burn a detail call
-            # without knowing whether the workout actually has GPS.
-            return False
+            # Unknown id — let the render fetch the detail and decide
+            # whether there's anything to render. One API call against
+            # an outdoor workout that's missing from the index is the
+            # exact cost we'd pay to surface it to the user any other
+            # way.
+            return True
         if entry.get("indoor") or entry.get("manual"):
             return False
         return not entry.get("has_track")
