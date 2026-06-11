@@ -125,6 +125,22 @@ class WahooWorkoutPickerSelect(CoordinatorEntity[WahooCoordinator], SelectEntity
         return "workout_picker"
 
     @property
+    def available(self) -> bool:
+        """Always available — the picker reads from the local manifest mirror.
+
+        ``CoordinatorEntity.available`` would tie us to
+        ``coordinator.last_update_success``, but ``options`` and
+        ``current_option`` both read from ``_workouts_index`` (loaded from
+        ``workouts.json`` at setup, updated whenever the coordinator
+        writes the manifest). An API failure (rate-limit storm, transient
+        network blip) doesn't make the cached picker any less usable —
+        the user can still pin a historic workout, and the per-workout
+        sensors that DO depend on a fresh API response correctly go
+        unavailable on their own.
+        """
+        return True
+
+    @property
     def options(self) -> list[str]:
         self._option_to_id = {_LATEST_OPTION: None}
         labels = [_LATEST_OPTION]

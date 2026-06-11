@@ -423,6 +423,18 @@ class WahooLifetimeSensor(_WahooDescriptionEntity):
     entity_description: WahooLifetimeSensorDescription
 
     @property
+    def available(self) -> bool:
+        """Always available — lifetime totals are local persisted state.
+
+        ``CoordinatorEntity.available`` would tie us to
+        ``coordinator.last_update_success``, but our value comes from the
+        ``LifetimeTotals`` store loaded at setup; an API failure (rate
+        limit, transient network blip) doesn't make the cached totals
+        any less correct.
+        """
+        return True
+
+    @property
     def native_value(self) -> float | int:
         return self.entity_description.value_fn(self.coordinator.totals)
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import shutil
@@ -22,6 +23,15 @@ _LOGGER = logging.getLogger(__name__)
 
 _PACKAGED_MAP_HTML = Path(__file__).parent / "web" / "map.html"
 _VIEWER_VERSION_RE = re.compile(r"HAWahooligan-Viewer-Version:\s*(\d+)")
+
+# Setup-phase timeout for each coordinator's first refresh. The Wahoo API
+# client's 429 path can ``asyncio.sleep`` for up to ``Retry-After`` (default
+# 300 s) before retrying — on a rate-limited Sandbox account that would
+# block HA setup for up to 10 minutes (workout + power-zones coordinators
+# in series). 30 s gives a healthy API plenty of room to respond and the
+# user a snappy restart; the next regular poll picks up where setup left
+# off if the API stays slow.
+_FIRST_REFRESH_TIMEOUT_SECONDS = 30
 
 
 @dataclass(slots=True)
@@ -50,17 +60,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: HawahooliganConfigEntry)
 
     await coordinator.async_load_totals()
     await coordinator.async_load_workouts_index()
-    await coordinator.async_config_entry_first_refresh()
+    # Workout coordinator first refresh: cap the wait so a rate-limited
+    # Wahoo response doesn't sleep up to 5 minutes inside ``_request``'s
+    # ``Retry-After`` honour. Locally cached state (lifetime totals,
+    # picker manifest) is already loaded above, so timing out here just
+    # means the per-workout sensors stay ``unknown`` until the next
+    # 15-min poll instead of blocking HA setup.
+    try:
+        async with asyncio.timeout(_FIRST_REFRESH_TIMEOUT_SECONDS):
+            await coordinator.async_config_entry_first_refresh()
+    except TimeoutError:
+        _LOGGER.warning(
+            "Initial workout refresh timed out after %ds — Wahoo API is "
+            "likely rate-limited. Continuing setup; the next regular poll "
+            "will retry.",
+            _FIRST_REFRESH_TIMEOUT_SECONDS,
+        )
+
     # The zones coordinator is allowed to fail without blocking setup —
     # a missing ``power_zones_read`` scope surfaces as a HA reauth
     # notification without taking the workout pipeline down with it. The
     # auth-failed branch has to start reauth manually because we catch it
     # here instead of letting it propagate to HA's setup machinery.
     try:
-        await power_zones_coordinator.async_config_entry_first_refresh()
+        async with asyncio.timeout(_FIRST_REFRESH_TIMEOUT_SECONDS):
+            await power_zones_coordinator.async_config_entry_first_refresh()
     except ConfigEntryAuthFailed as err:
         _LOGGER.info("Power-zones scope missing — starting reauth flow: %s", err)
         entry.async_start_reauth(hass)
+    except TimeoutError:
+        _LOGGER.warning(
+            "Initial power-zones refresh timed out after %ds — continuing "
+            "setup; the next 24h cycle will retry.",
+            _FIRST_REFRESH_TIMEOUT_SECONDS,
+        )
     except Exception as err:  # noqa: BLE001 — non-auth failures stay advisory
         _LOGGER.warning("Power-zones first refresh failed: %s", err)
 
