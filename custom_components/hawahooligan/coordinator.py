@@ -538,14 +538,65 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         ``async_request_refresh`` cycle to round-trip through the API. With
         only the request_refresh, a rate-limited account could see the map
         lag the sensors by tens of seconds.
+
+        For an outdoor + non-manual pick whose GeoJSON isn't on disk yet,
+        kicks off a background render — initial backfill only paints the 20
+        newest tracks, and ``full_backfill`` doesn't render by default, so
+        many users land on an older outdoor ride and see the "no GPS"
+        overlay even though Wahoo HAS the data. The background task fetches
+        detail (1 API call), decodes the FIT (no API cost), writes the
+        ``.geojson``, and re-refreshes the manifest so ``has_track`` flips
+        and the viewer's next poll renders the track.
         """
         if workout_id == self._selected_workout_id:
             return
         self._selected_workout_id = workout_id
+        # Decide whether to auto-render BEFORE the manifest refresh —
+        # ``_refresh_manifest`` rebuilds ``_workouts_index`` from the disk
+        # snapshot, and the disk-vs-memory state can drift briefly during
+        # backfills. Reading the mirror first keeps the decision stable
+        # against the executor-thread interleave.
+        should_render = self._should_render_on_select(workout_id)
         # ``recent=[]`` keeps the existing workouts intact and only flips
         # ``selected_id`` on disk + in-memory.
         await self._refresh_manifest([], workout_id)
+        if should_render:
+            self.hass.async_create_task(
+                self._render_selected_workout(workout_id),
+                name=f"hawahooligan_render_{workout_id}",
+            )
         await self.async_request_refresh()
+
+    def _should_render_on_select(self, workout_id: int | None) -> bool:
+        """Decide whether to kick off an on-demand render for this pick."""
+        if workout_id is None:
+            return False
+        entry = self._workouts_index.get(workout_id)
+        if entry is None:
+            # Unknown id — let the user fall back to the explicit
+            # ``hawahooligan.render_workout`` service if they want it
+            # rendered. Auto-rendering blind would burn a detail call
+            # without knowing whether the workout actually has GPS.
+            return False
+        if entry.get("indoor") or entry.get("manual"):
+            return False
+        return not entry.get("has_track")
+
+    async def _render_selected_workout(self, workout_id: int) -> None:
+        """Render ``<id>.geojson`` then re-write the manifest so ``has_track`` flips."""
+        try:
+            url = await self.async_render_workout(workout_id)
+        except Exception as err:  # noqa: BLE001 — on-demand render must not crash select
+            _LOGGER.warning("On-demand render for workout %d failed: %s", workout_id, err)
+            return
+        if url is None:
+            # The workout turned out to be indoor / manual / no track once
+            # the detail was fetched — nothing to do, the manifest is already
+            # accurate and the viewer keeps showing the no-GPS overlay.
+            return
+        # Re-write the manifest so the viewer's next poll sees ``has_track``
+        # as True and renders the track instead of the overlay.
+        await self._refresh_manifest([], self._selected_workout_id)
 
     async def _async_update_data(self) -> WorkoutData | None:
         try:

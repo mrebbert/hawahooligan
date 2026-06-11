@@ -195,7 +195,9 @@ Lovelace iframe card.
 | Default view | Renders `latest.geojson` (the most recent outdoor ride). |
 | Deep link | Append `?id=<workout_id>`, e.g. `/local/hawahooligan/map.html?id=12345`. |
 | Browse history | The `select.hawahooligan_workout_picker` dropdown (shipped as a card right above the iframe) lists every workout the integration has ever seen — regular polls add the last 20, `full_backfill` adds everything else. Picking one drives the headline sensors AND the iframe in one go. |
-| Indoor / manual rides | Pickable like any other workout. Sensors update; the iframe shows a friendly "no GPS track" overlay instead of an empty map. |
+| Auto-render on pick | Since 0.7.13, picking an outdoor / non-manual ride whose `.geojson` isn't on disk yet kicks off a background render (1 detail API call + FIT download; FIT downloads don't count against the Wahoo rate limit). The map fills within seconds — no manual `render_workout` service call needed. |
+| Bulk-render history | If you want every historic outdoor track on disk in one shot, call `hawahooligan.full_backfill` with `with_tracks: true`. Default budget (20 detail calls / 5 min) stays under the Sandbox quota; pass `max_calls_per_window: 150` on the production tier to run faster. |
+| Indoor / manual rides | Pickable like any other workout. Sensors update; the iframe shows a friendly "no GPS track" overlay instead of an empty map. No render is attempted (there's nothing to render). |
 | Stay in sync | `cleanup_geojson` removes manifest entries for any tracks it deletes, so the dropdown reflects what's actually on disk. Indoor / manual rows (no track to time-check) are untouched. |
 
 > The integration writes `<config>/www/hawahooligan/map.html` once per
