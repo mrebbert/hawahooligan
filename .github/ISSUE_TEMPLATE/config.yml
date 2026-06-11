@@ -1,0 +1,19 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question / how-to / "is this possible?"
+    url: https://github.com/mrebbert/hawahooligan/discussions
+    about: |
+      Open-ended questions and dashboard tinkering belong in Discussions
+      (or skim the README's Troubleshooting / FAQ section first — most
+      "stale picker after upgrade" / "429" / "no GPS overlay" cases are
+      already documented).
+  - name: README — Troubleshooting / FAQ
+    url: https://github.com/mrebbert/hawahooligan#troubleshooting--faq
+    about: |
+      Self-serve documentation for the common upgrade + rate-limit
+      + browser-cache scenarios. Less waiting around than an issue.
+  - name: Home Assistant Community Forum
+    url: https://community.home-assistant.io/
+    about: |
+      Generic Home Assistant questions that aren't HAWahooligan-specific
+      get faster answers from the wider HA community.

@@ -1,0 +1,4 @@
+# Default owner for everything — single-maintainer project.
+# Adding a path-specific owner here later will route reviews
+# automatically when a collaborator picks up a sub-area.
+* @mrebbert

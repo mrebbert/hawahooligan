@@ -1,0 +1,96 @@
+name: Bug report
+description: Something doesn't work the way the README says it should.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a report — please fill in as
+        much as you can. Logs and version info save a round-trip; the
+        Wahoo API tier matters more than you might think because the
+        rate-limit shape is very different between Sandbox and Production.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight checks
+      description: One quick pass to rule out the common stale-state traps.
+      options:
+        - label: I'm on the latest HAWahooligan release (see [releases](https://github.com/mrebbert/hawahooligan/releases)).
+          required: true
+        - label: I read the README's [Troubleshooting / FAQ](https://github.com/mrebbert/hawahooligan#troubleshooting--faq) and didn't find this case.
+          required: true
+        - label: I searched [existing issues](https://github.com/mrebbert/hawahooligan/issues?q=is%3Aissue) for a duplicate.
+          required: true
+
+  - type: input
+    id: hawahooligan_version
+    attributes:
+      label: HAWahooligan version
+      description: From HACS or `custom_components/hawahooligan/manifest.json`.
+      placeholder: e.g. 0.7.15
+    validations:
+      required: true
+
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant Core version
+      description: From **Settings → About**.
+      placeholder: e.g. 2026.6.3
+    validations:
+      required: true
+
+  - type: dropdown
+    id: wahoo_tier
+    attributes:
+      label: Wahoo Developer App tier
+      description: From your Wahoo Developer Portal (the rate-limit shape is very different between the two).
+      options:
+        - Sandbox (25 / 5 min, 100 / hour, 250 / day)
+        - Production (200 / 5 min, 1000 / hour, 5000 / day)
+        - Don't know
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install_method
+    attributes:
+      label: Install method
+      options:
+        - HACS (custom repository)
+        - Manual copy into custom_components/
+        - Other (please describe in the description)
+    validations:
+      required: true
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what did the integration actually do?
+      placeholder: |
+        1. I picked workout X in the dropdown
+        2. I expected the map to render the GeoJSON track
+        3. Instead the iframe showed the "no GPS track" overlay
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log lines from `home-assistant.log`
+      description: |
+        Filter for `custom_components.hawahooligan` and paste anything around the time the bug surfaced. Redact `client_id` / `client_secret` / `access_token` / `refresh_token` if they leak through. Code-fenced is fine.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, dashboard YAML, custom automations interacting with the integration — anything that helps reproduce.
+    validations:
+      required: false

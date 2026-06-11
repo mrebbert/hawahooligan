@@ -1,0 +1,62 @@
+name: Feature request
+description: A new sensor, service, dashboard knob, or behavior you'd like to see.
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Heads-up — this is a single-maintainer project; not every feature can land,
+        and Phase 5 (write endpoints — routes / plans / uploads) is explicitly
+        deferred. The clearer you can be about the use case, the easier the
+        triage.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you solving?
+      description: The "why" before the "what" — what's the user-facing pain or workflow you'd like the integration to support?
+      placeholder: |
+        Right now I can't track my time-in-zone per workout in HA without
+        building a template sensor by hand. I'd like the integration to do
+        that for me because …
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: A sensor / service / attribute / config knob — whatever shape fits. Rough sketch is fine, paste YAML or pseudo-code if it helps.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: HA template sensors, AppDaemon scripts, third-party tools — what did you look at before opening this?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: api_dependency
+    attributes:
+      label: Does this need new Wahoo Cloud API endpoints / scopes?
+      description: New scopes trigger a reauth flow and may need Production-tier review at Wahoo.
+      options:
+        - "No — works with the current scopes (user_read, workouts_read, power_zones_read, offline_data)"
+        - "Yes — needs additional read scope(s)"
+        - "Yes — needs write scope(s) (routes_write / plans_write / workout_file_uploads) — these belong to deferred Phase 5"
+        - Don't know
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Would you like to help?
+      description: Totally optional — neither answer slows triage.
+      options:
+        - label: I'd be open to opening a draft PR if the direction is agreed.
+          required: false
