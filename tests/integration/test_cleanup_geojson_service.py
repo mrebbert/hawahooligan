@@ -15,8 +15,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.hawahooligan.const import DOMAIN, MANIFEST_FILENAME, WWW_SUBPATH
+from custom_components.hawahooligan.const import DOMAIN, WWW_SUBPATH
 from custom_components.hawahooligan.coordinator import WorkoutData
+from custom_components.hawahooligan.manifest import MANIFEST_FILENAME
 
 from ._setup import oauth_implementation_patches
 

@@ -25,10 +25,10 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.hawahooligan.const import (
     DOMAIN,
     EVENT_BACKFILL_PROGRESS,
-    MANIFEST_FILENAME,
     WWW_SUBPATH,
 )
 from custom_components.hawahooligan.coordinator import WorkoutData
+from custom_components.hawahooligan.manifest import MANIFEST_FILENAME
 
 from ._setup import oauth_implementation_patches
 

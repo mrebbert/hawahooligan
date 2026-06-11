@@ -120,7 +120,8 @@ async def test_select_workout_writes_selected_id_synchronously(
     import json
     from pathlib import Path
 
-    from custom_components.hawahooligan.const import MANIFEST_FILENAME, WWW_SUBPATH
+    from custom_components.hawahooligan.const import WWW_SUBPATH
+    from custom_components.hawahooligan.manifest import MANIFEST_FILENAME
 
     entry = await _setup_entry(hass)
     coordinator = entry.runtime_data.coordinator
