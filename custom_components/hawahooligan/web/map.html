@@ -16,17 +16,30 @@
     * Honours ``?id=<workout_id>`` for direct deep links, overrides the
       manifest selection while present.
 
-  HAWahooligan-Viewer-Version: 4
+  HAWahooligan-Viewer-Version: 5
   Bump that version line in custom_components/hawahooligan/web/map.html when
   you ship breaking changes — the integration re-provisions the file
   whenever the version stamp in <config>/www/hawahooligan/map.html differs
   from the packaged one. Delete the version comment in your local copy to
   pin it against future updates.
+
+  v5 adds aggressive cache-control headers (Cache-Control: no-store +
+  Pragma + Expires) so future viewer bumps land on the next page load
+  without requiring users to manually hard-reload the iframe. v3 → v5
+  (or v4 → v5) still needs one hard-reload because the browser already
+  has the old cached HTML — once v5 is loaded, future bumps are
+  picked up automatically.
 -->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Force the iframe to revalidate the HTML on every navigation so
+         future viewer bumps don't get held back by a stale browser cache.
+         HA's /local/ static file server doesn't set these by default. -->
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>HAWahooligan track</title>
     <link
       rel="stylesheet"

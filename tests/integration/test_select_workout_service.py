@@ -106,3 +106,48 @@ async def test_select_workout_rejects_garbage(hass: HomeAssistant) -> None:
             {"workout_id": "definitely-not-an-id", "config_entry_id": entry.entry_id},
             blocking=True,
         )
+
+
+async def test_select_workout_writes_selected_id_synchronously(
+    hass: HomeAssistant,
+) -> None:
+    """Pin lands in workouts.json before async_request_refresh fires.
+
+    Regression for the v0.7.12 bug where the iframe viewer lagged the
+    sensors by 10-15 s because manifest.selected_id only got rewritten
+    on the next DataUpdateCoordinator cycle.
+    """
+    import json
+    from pathlib import Path
+
+    from custom_components.hawahooligan.const import MANIFEST_FILENAME, WWW_SUBPATH
+
+    entry = await _setup_entry(hass)
+    coordinator = entry.runtime_data.coordinator
+
+    # Spy on request_refresh so we can prove the manifest was written
+    # before HA was even asked to refresh.
+    refresh_calls: list[None] = []
+
+    async def _record_request_refresh() -> None:
+        manifest_path = Path(hass.config.path(*WWW_SUBPATH)) / MANIFEST_FILENAME
+        if not manifest_path.is_file():
+            raise AssertionError("manifest must exist by the time async_request_refresh fires")
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        # The pinned id must already be on disk.
+        if payload.get("selected_id") != 12345:
+            raise AssertionError(
+                f"manifest.selected_id is {payload.get('selected_id')!r}, "
+                "expected 12345 — manifest was not written synchronously"
+            )
+        refresh_calls.append(None)
+
+    with patch.object(coordinator, "async_request_refresh", new=_record_request_refresh):
+        await hass.services.async_call(
+            DOMAIN,
+            "select_workout",
+            {"workout_id": 12345, "config_entry_id": entry.entry_id},
+            blocking=True,
+        )
+
+    assert refresh_calls == [None], "async_request_refresh should fire exactly once"

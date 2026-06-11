@@ -532,14 +532,19 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
     async def async_select_workout(self, workout_id: int | None) -> None:
         """Pin the sensors and map to ``workout_id`` (or ``None`` for latest).
 
-        Invalidates the detail cache for the previously-selected workout so a
-        re-pick after a re-render picks up the new file URL. Triggers an
-        immediate refresh so the viewer sees the change without waiting up to
-        15 minutes for the next poll.
+        The ``selected_id`` in ``workouts.json`` is rewritten **synchronously**
+        before kicking off the data refresh, so the iframe viewer's 5-second
+        manifest poll picks up the new pin without waiting for the
+        ``async_request_refresh`` cycle to round-trip through the API. With
+        only the request_refresh, a rate-limited account could see the map
+        lag the sensors by tens of seconds.
         """
         if workout_id == self._selected_workout_id:
             return
         self._selected_workout_id = workout_id
+        # ``recent=[]`` keeps the existing workouts intact and only flips
+        # ``selected_id`` on disk + in-memory.
+        await self._refresh_manifest([], workout_id)
         await self.async_request_refresh()
 
     async def _async_update_data(self) -> WorkoutData | None:

@@ -278,13 +278,41 @@ does this.
 </details>
 
 <details>
-<summary><strong>Dropdown updates the map but not the sensors</strong></summary>
+<summary><strong>I see the old in-iframe dropdown after upgrading to 0.7.11+</strong></summary>
 
-The viewer reads your HA auth token from `localStorage.hassTokens` and
-calls the `select_workout` service against `/api/services/...`. If you
-opened the map.html standalone in a browser tab without signing in to
-HA first, the service call can't authenticate. Open the dashboard from
-inside the HA frontend.
+0.7.11 moved the workout picker out of the iframe and into a native HA
+`SelectEntity`. The packaged ``map.html`` is auto-reprovisioned at HA
+startup, but your browser still holds the previous (v3) viewer in
+cache. One-time fix: hard-reload the iframe.
+
+- Open the dashboard, right-click the map → "Reload frame" if your
+  browser exposes it.
+- Easier: navigate directly to ``<your HA URL>/local/hawahooligan/map.html``
+  and press `Cmd+Shift+R` (macOS) / `Ctrl+Shift+F5` (Win/Linux), then
+  go back to the dashboard.
+
+From 0.7.12 onward the viewer ships ``Cache-Control: no-store`` headers
+so future bumps land on the next page load automatically.
+
+</details>
+
+<details>
+<summary><strong>Picker updates the sensors but the map sits on the previous track</strong></summary>
+
+The integration writes the new ``selected_id`` to ``workouts.json``
+synchronously when you change the picker (since 0.7.12). The iframe
+polls that file every 5 s, so the map should follow within a heartbeat.
+If it doesn't:
+
+1. Check you're on viewer v4+: the previous comment block in
+   ``<config>/www/hawahooligan/map.html`` should read
+   ``HAWahooligan-Viewer-Version: 5`` (or higher). If it says v3,
+   you're hitting the in-iframe-dropdown stale-cache bug above —
+   hard-reload.
+2. If you're on v4+ and the map still lags, the integration's
+   regular poll didn't fire (rate-limited or auth-failed). Call
+   ``hawahooligan.select_workout`` from Developer Tools → Services
+   to force a refresh.
 
 </details>
 
