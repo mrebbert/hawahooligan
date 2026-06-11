@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +52,7 @@ from .manifest import (
     merge_and_write_manifest,
     prune_manifest,
     read_manifest_entries,
+    read_selected_workout_id,
 )
 from .power_zones import PowerZonesData, parse_power_zones
 from .rate_limit import ConsecutiveLimitGuard, RateLimitBudget
@@ -59,6 +60,21 @@ from .totals import SCHEMA_VERSION as _TOTALS_SCHEMA_VERSION
 from .totals import LifetimeTotals, WorkoutContribution
 
 _LOGGER = logging.getLogger(__name__)
+
+# Per-workout detail cache persists across restarts so historic picks
+# don't burn an API call after every reboot. Schema bump when
+# ``WorkoutData`` gains a required field that can't default sanely.
+_DETAILS_SCHEMA_VERSION = 1
+
+# Debounce writes to the details cache — backfill loops drop 20+
+# entries in a few seconds; without the delay we'd hit disk 20 times
+# back-to-back. 10 s is long enough to coalesce, short enough that an
+# unclean shutdown loses at most one debounce window's worth.
+_DETAILS_SAVE_DELAY_SECONDS = 10
+
+# Picker-context fields don't belong in the per-workout cache — they're
+# rebuilt from the manifest + selected_id every poll.
+_DETAILS_TRANSIENT_FIELDS = frozenset({"recent", "selected_workout_id"})
 
 
 @dataclass(slots=True)
@@ -108,6 +124,39 @@ class WorkoutData:
     # Picker context
     recent: list[RecentWorkout] = field(default_factory=list)
     selected_workout_id: int | None = None
+
+
+def workout_data_to_storage(data: WorkoutData) -> dict[str, Any]:
+    """Serialize ``WorkoutData`` for the per-workout detail cache.
+
+    Strips transient picker context (``recent``, ``selected_workout_id``)
+    so the cache stays workout-scoped — those fields are rebuilt from
+    the manifest + the coordinator's selected_id on every poll.
+    """
+    out = asdict(data)
+    for key in _DETAILS_TRANSIENT_FIELDS:
+        out.pop(key, None)
+    return out
+
+
+def workout_data_from_storage(payload: dict[str, Any]) -> WorkoutData | None:
+    """Rehydrate ``WorkoutData`` from the cache, tolerating field drift.
+
+    Forward-compat: keys we don't recognize get filtered out so old
+    cache files don't fail to load after a schema bump. Fields that
+    were added since the cache was written use their dataclass
+    defaults.
+    """
+    if not isinstance(payload, dict):
+        return None
+    known = {f.name for f in fields(WorkoutData)}
+    filtered = {k: v for k, v in payload.items() if k in known}
+    if not filtered:
+        return None
+    try:
+        return WorkoutData(**filtered)
+    except (TypeError, ValueError):
+        return None
 
 
 def _as_float(value: Any) -> float | None:
@@ -294,6 +343,14 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             _TOTALS_SCHEMA_VERSION,
             f"{DOMAIN}_totals_{entry.entry_id}",
         )
+        # Per-workout detail cache persisted across restarts so historic
+        # picks don't burn an API call after every reboot. Written via
+        # ``async_delay_save`` so backfill loops don't hit disk per-entry.
+        self._details_store: Store = Store(
+            hass,
+            _DETAILS_SCHEMA_VERSION,
+            f"{DOMAIN}_details_{entry.entry_id}",
+        )
         # Serializes manifest read-modify-write across the regular poll,
         # backfill (recent + full), and cleanup paths so concurrent writers
         # don't drop each other's entries on the floor.
@@ -324,7 +381,9 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
 
         Lets the workout-picker ``SelectEntity`` come up with the full
         dropdown right after restart, without waiting for the first
-        regular-poll listing to round-trip.
+        regular-poll listing to round-trip. Also restores the user's
+        last selection (manifest ``selected_id``) so the headline
+        sensors come up pinned to the right workout.
         """
         try:
             self._workouts_index = await self.hass.async_add_executor_job(
@@ -333,6 +392,72 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         except OSError as err:
             _LOGGER.warning("Could not preload workouts index: %s", err)
             self._workouts_index = {}
+        try:
+            selected = await self.hass.async_add_executor_job(
+                read_selected_workout_id, self._geojson_dir
+            )
+        except OSError as err:
+            _LOGGER.warning("Could not preload selected workout id: %s", err)
+            selected = None
+        if selected is not None:
+            self._selected_workout_id = selected
+
+    async def async_load_details_cache(self) -> None:
+        """Rehydrate the per-workout detail cache from disk.
+
+        Setup-phase work — called after ``async_load_workouts_index``
+        so a cache-only cold start (rate-limited API, no successful
+        poll) can still hand the per-workout sensors a populated
+        ``coordinator.data`` for the pinned selection.
+        """
+        try:
+            payload = await self._details_store.async_load()
+        except Exception as err:  # noqa: BLE001 — load failure must not block setup
+            _LOGGER.warning("Could not load workout details cache: %s", err)
+            return
+        if not payload or not isinstance(payload, dict):
+            return
+        raw = payload.get("workouts")
+        if not isinstance(raw, dict):
+            return
+        loaded = 0
+        for wid_str, entry in raw.items():
+            try:
+                wid = int(wid_str)
+            except (TypeError, ValueError):
+                continue
+            data = workout_data_from_storage(entry)
+            if data is not None:
+                self._detail_cache[wid] = data
+                loaded += 1
+        if loaded:
+            _LOGGER.debug("Loaded %d workout(s) from the details cache", loaded)
+
+    def initial_data_from_cache(self) -> WorkoutData | None:
+        """Return cached ``WorkoutData`` for the restored selection, if any.
+
+        Called by setup so the coordinator can seed ``self.data`` before
+        the first refresh fires. With this, per-workout sensors come up
+        populated even when the API is rate-limited at boot.
+        """
+        if self._selected_workout_id is None:
+            return None
+        return self._detail_cache.get(self._selected_workout_id)
+
+    def _build_details_storage_payload(self) -> dict[str, Any]:
+        """Snapshot the in-memory cache for ``async_delay_save``."""
+        return {
+            "version": _DETAILS_SCHEMA_VERSION,
+            "workouts": {
+                str(wid): workout_data_to_storage(wd) for wid, wd in self._detail_cache.items()
+            },
+        }
+
+    def _schedule_details_save(self) -> None:
+        """Coalesce backfill-rate writes into one disk hit per debounce window."""
+        self._details_store.async_delay_save(
+            self._build_details_storage_payload, _DETAILS_SAVE_DELAY_SECONDS
+        )
 
     def known_workouts(self) -> list[dict[str, Any]]:
         """Return all known workouts sorted by ``starts`` desc.
@@ -569,6 +694,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
                     data.geojson_url = f"{WWW_URL_PREFIX}/{data.workout_id}.geojson"
 
             self._detail_cache[target_id] = data
+            self._schedule_details_save()
             if target_id == latest_id:
                 self._last_latest_summary_was_null = (
                     detail.get("workout_summary") in (None, {}) and listing_summary is None
@@ -590,6 +716,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
                 raise UpdateFailed(str(err)) from err
             data = _build_workout_data(detail)
             self._detail_cache[target_id] = data
+            self._schedule_details_save()
 
         data.recent = recent
         data.selected_workout_id = self._selected_workout_id
@@ -673,6 +800,8 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             return None
 
         data = _build_workout_data(detail)
+        self._detail_cache[workout_id] = data
+        self._schedule_details_save()
         await self._record_totals(data)
         if data.manual or data.indoor or not data.file_url:
             _LOGGER.debug(
@@ -747,6 +876,8 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             guard.record_success()
 
             data = _build_workout_data(detail)
+            self._detail_cache[workout_id] = data
+            self._schedule_details_save()
             if not totals_recorded:
                 await self._record_totals(data)
 
@@ -880,6 +1011,8 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
                     guard.record_success()
 
                     data = _build_workout_data(detail)
+                    self._detail_cache[workout_id] = data
+                    self._schedule_details_save()
                     if workout_id not in self._totals.workouts and await self._record_totals(data):
                         added_total += 1
                         page_added += 1

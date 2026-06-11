@@ -58,6 +58,27 @@ class RecentWorkout:
     duration_min: float | None = None
 
 
+def read_selected_workout_id(directory: Path) -> int | None:
+    """Blocking: pull just ``selected_id`` out of the manifest.
+
+    Returns ``None`` if the manifest is missing, malformed, or the
+    selected_id field isn't an int. Lets the coordinator restore the
+    user's "currently pinned" workout across HA restarts without
+    parsing the full workouts dict.
+    """
+    path = directory / MANIFEST_FILENAME
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    sel = payload.get("selected_id")
+    return sel if isinstance(sel, int) else None
+
+
 def read_manifest_entries(directory: Path) -> dict[int, dict[str, Any]]:
     """Blocking: load the existing manifest, return ``{workout_id: entry}``.
 

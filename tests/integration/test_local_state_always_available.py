@@ -116,16 +116,20 @@ async def test_lifetime_sensors_stay_available_after_coordinator_failure(
         )
 
 
-async def test_per_workout_sensors_still_track_coordinator_health(
+async def test_per_workout_sensors_follow_coordinator_data_not_update_success(
     hass: HomeAssistant,
 ) -> None:
-    """The fix is scoped to local-state entities — keep the API-bound ones honest.
+    """Per-workout sensors stay available with cached data; go unavailable when empty.
 
-    Negative regression: sensors like ``_distance`` / ``_average_power`` /
-    ``_last_workout`` reflect the most recent API response. They MUST
-    still go unavailable when the coordinator can't poll — otherwise a
-    rate-limit storm would silently mask stale data.
+    Contract since 0.7.17 (persistent detail cache): the per-workout
+    sensors track ``coordinator.data is not None`` instead of
+    ``last_update_success``. With cached data they stay available
+    through a rate-limit storm — that's the whole point of the cache.
+    Without any data at all (cold start, no cache, no successful poll)
+    they're unavailable, which is the only honest signal.
     """
+    from custom_components.hawahooligan.coordinator import WorkoutData
+
     entry = await _setup_entry(hass)
     coordinator = entry.runtime_data.coordinator
     api_bound_sensors = [
@@ -144,13 +148,20 @@ async def test_per_workout_sensors_still_track_coordinator_health(
     ]
     assert api_bound_sensors, "no API-bound per-workout sensors found — wiring broke?"
 
-    for sensor in api_bound_sensors:
-        assert sensor.available is True, f"{sensor.entity_id} unavailable pre-failure"
-
+    # Seed cached data + simulate a failed poll: sensors stay available.
+    coordinator.async_set_updated_data(WorkoutData(workout_id=42, name="cached ride"))
     _simulate_coordinator_failure(coordinator)
+    for sensor in api_bound_sensors:
+        assert sensor.available is True, (
+            f"{sensor.entity_id} went unavailable despite cached data — "
+            "0.7.17's persistent detail cache is supposed to keep these "
+            "sensors usable through rate-limit storms"
+        )
 
+    # Cold start (no data, no successful poll): sensors are unavailable.
+    coordinator.data = None
     for sensor in api_bound_sensors:
         assert sensor.available is False, (
-            f"{sensor.entity_id} stayed available despite coordinator failure — "
-            "this would silently mask stale API data"
+            f"{sensor.entity_id} reported available without any data — "
+            "would render as 'unknown' with no honest signal to the user"
         )

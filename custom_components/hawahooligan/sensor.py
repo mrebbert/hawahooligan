@@ -336,6 +336,20 @@ class _WahooDescriptionEntity(CoordinatorEntity[WahooCoordinator], SensorEntity)
             self.entity_description.translation_key or self.entity_description.key
         )
 
+    @property
+    def available(self) -> bool:
+        """Available whenever the coordinator has ANY data (fresh or cached).
+
+        ``CoordinatorEntity.available`` ties itself to
+        ``last_update_success``, which would flip every per-workout sensor
+        to "unavailable" the moment the API rate-limits. Since 0.7.17 the
+        coordinator persists per-workout details across restarts and
+        seeds ``self.data`` from that cache at setup, so a populated
+        ``coordinator.data`` is the right "we have something to show"
+        signal — independent of whether the most recent poll succeeded.
+        """
+        return self.coordinator.data is not None
+
 
 class WahooLastWorkoutSensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
     """Headline sensor: state = start time of the most recent workout."""
@@ -352,6 +366,11 @@ class WahooLastWorkoutSensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
     @property
     def suggested_object_id(self) -> str | None:
         return "last_workout"
+
+    @property
+    def available(self) -> bool:
+        """Mirror the per-workout sensor policy — available with cached data."""
+        return self.coordinator.data is not None
 
     @property
     def native_value(self) -> datetime | None:

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import config_entry_oauth2_flow
 
 from .api import WahooApi
@@ -60,12 +60,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: HawahooliganConfigEntry)
 
     await coordinator.async_load_totals()
     await coordinator.async_load_workouts_index()
+    await coordinator.async_load_details_cache()
+    # If the user had a workout pinned before restart AND its detail
+    # lives in the cache, seed ``coordinator.data`` so the per-workout
+    # sensors come up populated even if the API stays rate-limited
+    # through the first refresh.
+    initial = coordinator.initial_data_from_cache()
+    if initial is not None:
+        coordinator.async_set_updated_data(initial)
     # Workout coordinator first refresh: cap the wait so a rate-limited
     # Wahoo response doesn't sleep up to 5 minutes inside ``_request``'s
     # ``Retry-After`` honour. Locally cached state (lifetime totals,
-    # picker manifest) is already loaded above, so timing out here just
-    # means the per-workout sensors stay ``unknown`` until the next
-    # 15-min poll instead of blocking HA setup.
+    # picker manifest, per-workout detail cache) is already loaded above,
+    # so timing out here just means the per-workout sensors keep showing
+    # the cached values until the next 15-min poll instead of blocking
+    # HA setup.
     try:
         async with asyncio.timeout(_FIRST_REFRESH_TIMEOUT_SECONDS):
             await coordinator.async_config_entry_first_refresh()
@@ -75,6 +84,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: HawahooliganConfigEntry)
             "likely rate-limited. Continuing setup; the next regular poll "
             "will retry.",
             _FIRST_REFRESH_TIMEOUT_SECONDS,
+        )
+    except ConfigEntryNotReady:
+        # ``async_config_entry_first_refresh`` translates ``UpdateFailed``
+        # into ``ConfigEntryNotReady`` to trigger HA's setup-retry loop.
+        # When the persistent detail cache already gave us data above,
+        # though, we ARE ready — the failed poll just means we'll keep
+        # showing the cached values until the next 15-min cycle. Re-raise
+        # only when we have nothing at all.
+        if coordinator.data is None:
+            raise
+        _LOGGER.info(
+            "First refresh failed but the detail cache covers the pinned "
+            "selection — continuing setup with cached values."
         )
 
     # The zones coordinator is allowed to fail without blocking setup —
