@@ -29,7 +29,6 @@ from ._setup import oauth_implementation_patches
 # where ``async_load_details_cache`` will look.
 _ENTRY_ID = "details-cache-probe"
 _DETAILS_STORE_KEY = f"{DOMAIN}_details_{_ENTRY_ID}"
-_TOTALS_STORE_KEY = f"{DOMAIN}_totals_{_ENTRY_ID}"
 
 
 async def test_setup_seeds_coordinator_data_from_cache(
