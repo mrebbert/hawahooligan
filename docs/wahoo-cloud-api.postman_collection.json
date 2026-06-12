@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Wahoo Cloud API",
-    "description": "Manual-test collection for the Wahoo Cloud API endpoints HAWahooligan reads. Mirrors `docs/wahoo-cloud-api-cli.md`. Set `client_id`, `client_secret`, `redirect_uri` in the collection variables, run the OAuth flow once, then call any read endpoint.",
+    "description": "Manual-test collection covering every endpoint in the Wahoo Cloud API as of 2026-06. Mirrors `docs/wahoo-cloud-api-cli.md`. Set `client_id`, `client_secret`, `redirect_uri` in the collection variables, run the OAuth flow once, then call any read endpoint. Write endpoints (POST/PUT/DELETE on workouts, plans, routes, power_zones) need the matching `_write` scope — re-authorize with the wider scope when you want to try them.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -40,8 +40,9 @@
     },
     {
       "key": "scope",
-      "value": "user_read workouts_read power_zones_read offline_data",
-      "type": "string"
+      "value": "user_read workouts_read power_zones_read plans_read routes_read offline_data",
+      "type": "string",
+      "description": "Read-only browsing default. For write endpoints, append the matching `_write` scopes (user_write, workouts_write, plans_write, routes_write, power_zones_write) and re-run the authorize step."
     },
     {
       "key": "auth_code",
@@ -65,7 +66,31 @@
       "key": "workout_id",
       "value": "",
       "type": "string",
-      "description": "Used by the workout detail request"
+      "description": "Used by workout detail / summary / plan-link requests"
+    },
+    {
+      "key": "plan_id",
+      "value": "",
+      "type": "string",
+      "description": "Used by plan detail / update / delete requests"
+    },
+    {
+      "key": "route_id",
+      "value": "",
+      "type": "string",
+      "description": "Used by route detail / update / delete requests"
+    },
+    {
+      "key": "power_zone_id",
+      "value": "",
+      "type": "string",
+      "description": "Used by power-zone detail / update / delete requests"
+    },
+    {
+      "key": "upload_token",
+      "value": "",
+      "type": "string",
+      "description": "Returned by POST /v1/workout_file_uploads — used to poll processing status"
     },
     {
       "key": "per_page",
@@ -101,22 +126,10 @@
                 "authorize"
               ],
               "query": [
-                {
-                  "key": "client_id",
-                  "value": "{{client_id}}"
-                },
-                {
-                  "key": "redirect_uri",
-                  "value": "{{redirect_uri}}"
-                },
-                {
-                  "key": "response_type",
-                  "value": "code"
-                },
-                {
-                  "key": "scope",
-                  "value": "{{scope}}"
-                }
+                { "key": "client_id", "value": "{{client_id}}" },
+                { "key": "redirect_uri", "value": "{{redirect_uri}}" },
+                { "key": "response_type", "value": "code" },
+                { "key": "scope", "value": "{{scope}}" }
               ]
             },
             "description": "Right-click this request → Copy URL, paste in a browser, authorize. Wahoo redirects to `redirect_uri?code=…` — copy the code into the `auth_code` collection variable."
@@ -144,50 +157,23 @@
             }
           ],
           "request": {
-            "auth": {
-              "type": "noauth"
-            },
+            "auth": { "type": "noauth" },
             "method": "POST",
             "header": [],
             "body": {
               "mode": "urlencoded",
               "urlencoded": [
-                {
-                  "key": "client_id",
-                  "value": "{{client_id}}",
-                  "type": "text"
-                },
-                {
-                  "key": "client_secret",
-                  "value": "{{client_secret}}",
-                  "type": "text"
-                },
-                {
-                  "key": "grant_type",
-                  "value": "authorization_code",
-                  "type": "text"
-                },
-                {
-                  "key": "code",
-                  "value": "{{auth_code}}",
-                  "type": "text"
-                },
-                {
-                  "key": "redirect_uri",
-                  "value": "{{redirect_uri}}",
-                  "type": "text"
-                }
+                { "key": "client_id", "value": "{{client_id}}", "type": "text" },
+                { "key": "client_secret", "value": "{{client_secret}}", "type": "text" },
+                { "key": "grant_type", "value": "authorization_code", "type": "text" },
+                { "key": "code", "value": "{{auth_code}}", "type": "text" },
+                { "key": "redirect_uri", "value": "{{redirect_uri}}", "type": "text" }
               ]
             },
             "url": {
               "raw": "{{base_url}}/oauth/token",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "oauth",
-                "token"
-              ]
+              "host": [ "{{base_url}}" ],
+              "path": [ "oauth", "token" ]
             },
             "description": "Test script stores `access_token` + `refresh_token` into the collection variables on a 200 response."
           },
@@ -214,45 +200,22 @@
             }
           ],
           "request": {
-            "auth": {
-              "type": "noauth"
-            },
+            "auth": { "type": "noauth" },
             "method": "POST",
             "header": [],
             "body": {
               "mode": "urlencoded",
               "urlencoded": [
-                {
-                  "key": "client_id",
-                  "value": "{{client_id}}",
-                  "type": "text"
-                },
-                {
-                  "key": "client_secret",
-                  "value": "{{client_secret}}",
-                  "type": "text"
-                },
-                {
-                  "key": "grant_type",
-                  "value": "refresh_token",
-                  "type": "text"
-                },
-                {
-                  "key": "refresh_token",
-                  "value": "{{refresh_token}}",
-                  "type": "text"
-                }
+                { "key": "client_id", "value": "{{client_id}}", "type": "text" },
+                { "key": "client_secret", "value": "{{client_secret}}", "type": "text" },
+                { "key": "grant_type", "value": "refresh_token", "type": "text" },
+                { "key": "refresh_token", "value": "{{refresh_token}}", "type": "text" }
               ]
             },
             "url": {
               "raw": "{{base_url}}/oauth/token",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "oauth",
-                "token"
-              ]
+              "host": [ "{{base_url}}" ],
+              "path": [ "oauth", "token" ]
             },
             "description": "Wahoo rotates the refresh token on every refresh — the test script auto-stores the new one."
           },
@@ -261,7 +224,8 @@
       ]
     },
     {
-      "name": "Read",
+      "name": "User",
+      "description": "Authenticated user profile. `user_read` for the GET, `user_write` for the PUT.",
       "item": [
         {
           "name": "GET /v1/user",
@@ -270,17 +234,39 @@
             "header": [],
             "url": {
               "raw": "{{base_url}}/v1/user",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "v1",
-                "user"
-              ]
-            }
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "user" ]
+            },
+            "description": "Returns the Wahoo user profile (id, first/last, height, weight, email…). The id is the canonical account identifier used as HAWahooligan's `unique_id`."
           },
           "response": []
         },
+        {
+          "name": "PUT /v1/user",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user\": {\n    \"weight\": 75.0,\n    \"height\": 180\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/user",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "user" ]
+            },
+            "description": "Update the authenticated user. Needs `user_write` scope. Editable fields include weight (kg), height (cm), gender, birth date — see Wahoo docs for the full list."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Workouts",
+      "description": "List + per-workout read endpoints, plus the write endpoints for scheduling workouts. The list response carries a partial summary; call the per-workout endpoint for the full summary.",
+      "item": [
         {
           "name": "GET /v1/workouts (paginated)",
           "request": {
@@ -288,24 +274,14 @@
             "header": [],
             "url": {
               "raw": "{{base_url}}/v1/workouts?per_page={{per_page}}&page={{page}}",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "v1",
-                "workouts"
-              ],
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "workouts" ],
               "query": [
-                {
-                  "key": "per_page",
-                  "value": "{{per_page}}"
-                },
-                {
-                  "key": "page",
-                  "value": "{{page}}"
-                }
+                { "key": "per_page", "value": "{{per_page}}" },
+                { "key": "page", "value": "{{page}}" }
               ]
-            }
+            },
+            "description": "Sorted by `starts` desc. `workout_summary` is often null in the listing — fetch the per-workout endpoint for the full payload."
           },
           "response": []
         },
@@ -316,107 +292,120 @@
             "header": [],
             "url": {
               "raw": "{{base_url}}/v1/workouts/{{workout_id}}",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "v1",
-                "workouts",
-                "{{workout_id}}"
-              ]
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "workouts", "{{workout_id}}" ]
             },
-            "description": "Set the `workout_id` collection variable first."
+            "description": "Set the `workout_id` collection variable first. Always includes `workout_summary` when one exists."
           },
           "response": []
         },
         {
-          "name": "GET /v1/power_zones",
+          "name": "GET /v1/workouts/:id/workout_summary",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/v1/power_zones",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "v1",
-                "power_zones"
-              ]
-            }
+              "raw": "{{base_url}}/v1/workouts/{{workout_id}}/workout_summary",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "workouts", "{{workout_id}}", "workout_summary" ]
+            },
+            "description": "Returns just the summary record (distance, durations, avg/max power, heart_rate_avg, file URLs). Useful when you already have the parent workout id but want to skip the parent's metadata."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /v1/workouts/:id/plans",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/workouts/{{workout_id}}/plans",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "workouts", "{{workout_id}}", "plans" ]
+            },
+            "description": "Lists structured plans associated with the workout (intervals, target zones). Needs `plans_read` scope."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /v1/workouts (schedule)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"workout\": {\n    \"name\": \"Sweet spot intervals\",\n    \"starts\": \"2026-06-15T17:00:00Z\",\n    \"minutes\": 60,\n    \"workout_type_id\": 0\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/workouts",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "workouts" ]
+            },
+            "description": "Schedule a future workout. Needs `workouts_write` scope. Pair with POST /v1/plans to attach a structured plan."
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /v1/workouts/:id",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"workout\": {\n    \"name\": \"Updated session name\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/workouts/{{workout_id}}",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "workouts", "{{workout_id}}" ]
+            },
+            "description": "Update scheduled workout fields. Needs `workouts_write` scope."
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /v1/workouts/:id",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/workouts/{{workout_id}}",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "workouts", "{{workout_id}}" ]
+            },
+            "description": "Delete a workout. Needs `workouts_write` scope. Use cautiously — Wahoo may decline to delete workouts already synced to a head unit."
           },
           "response": []
         }
       ]
     },
     {
-      "name": "Write (Phase 5 — needs extra scopes)",
-      "description": "Not used by HAWahooligan today. Requires re-authorizing with `routes_write` / `plans_write` / `workouts_write` scopes added to the authorize URL.",
+      "name": "Workout file uploads",
+      "description": "Push an external FIT into the Wahoo cloud and poll for the processing result. Needs `workouts_write`.",
       "item": [
         {
-          "name": "POST /v1/routes",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "body": {
-              "mode": "formdata",
-              "formdata": [
-                {
-                  "key": "file",
-                  "type": "file",
-                  "description": "FIT route file"
-                },
-                {
-                  "key": "name",
-                  "value": "My route",
-                  "type": "text"
-                }
-              ]
-            },
-            "url": {
-              "raw": "{{base_url}}/v1/routes",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "v1",
-                "routes"
-              ]
-            },
-            "description": "Needs `routes_write` scope."
-          },
-          "response": []
-        },
-        {
-          "name": "POST /v1/plans",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Sweet spot intervals\",\n  \"description\": \"3x10min @ 88% FTP\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/v1/plans",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "v1",
-                "plans"
-              ]
-            },
-            "description": "Needs `plans_write` scope. Real payload shape is richer — see Wahoo docs."
-          },
-          "response": []
-        },
-        {
           "name": "POST /v1/workout_file_uploads",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.token) {",
+                  "    pm.collectionVariables.set('upload_token', body.token);",
+                  "    console.log('Stored upload_token =', body.token);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [],
@@ -432,15 +421,334 @@
             },
             "url": {
               "raw": "{{base_url}}/v1/workout_file_uploads",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "v1",
-                "workout_file_uploads"
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "workout_file_uploads" ]
+            },
+            "description": "Upload a FIT for asynchronous processing. Response carries a `token` — use it with the status endpoint to poll. Test script auto-stores the token into `upload_token`."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /v1/workout_file_uploads/:token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/workout_file_uploads/{{upload_token}}",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "workout_file_uploads", "{{upload_token}}" ]
+            },
+            "description": "Poll the upload status. Returns the processed workout id once the FIT is ingested."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Power zones",
+      "description": "Per-sport FTP / critical-power / zone-boundary records. Read with `power_zones_read`, write with `power_zones_write`. HAWahooligan reads the primary record on a daily poll.",
+      "item": [
+        {
+          "name": "GET /v1/power_zones",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/power_zones",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "power_zones" ]
+            },
+            "description": "Lists every power-zone record. Most users have one per sport (Biking, Running). The primary is the most-recently-updated record with non-zero FTP."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /v1/power_zones/:id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/power_zones/{{power_zone_id}}",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "power_zones", "{{power_zone_id}}" ]
+            },
+            "description": "Single record by id."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /v1/power_zones",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"power_zone\": {\n    \"ftp\": 250,\n    \"critical_power\": 260,\n    \"zone_count\": 7,\n    \"zone_1\": 137,\n    \"zone_2\": 187,\n    \"zone_3\": 225,\n    \"zone_4\": 262,\n    \"zone_5\": 300,\n    \"zone_6\": 375,\n    \"zone_7\": 450,\n    \"workout_type_id\": 0\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/power_zones",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "power_zones" ]
+            },
+            "description": "Create a power-zone profile for a sport. Needs `power_zones_write` scope. The seven zone boundaries are absolute watts, not %FTP."
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /v1/power_zones/:id",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"power_zone\": {\n    \"ftp\": 260\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/power_zones/{{power_zone_id}}",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "power_zones", "{{power_zone_id}}" ]
+            },
+            "description": "Update a power-zone record. Needs `power_zones_write` scope. Useful after an FTP test."
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /v1/power_zones/:id",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/power_zones/{{power_zone_id}}",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "power_zones", "{{power_zone_id}}" ]
+            },
+            "description": "Delete a power-zone record. Needs `power_zones_write` scope."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Plans",
+      "description": "Structured workouts. Plans can be linked to a scheduled workout so they show on the head unit. Read with `plans_read`, write with `plans_write`.",
+      "item": [
+        {
+          "name": "GET /v1/plans",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/plans",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "plans" ]
+            },
+            "description": "List every plan in the user's library."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /v1/plans/:id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/plans/{{plan_id}}",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "plans", "{{plan_id}}" ]
+            },
+            "description": "Single plan by id."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /v1/plans",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "Plan JSON file (Wahoo's structured-plan format)"
+                },
+                {
+                  "key": "name",
+                  "value": "Sweet spot intervals",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "3x10min @ 88% FTP",
+                  "type": "text"
+                }
               ]
             },
-            "description": "Needs `workouts_write` scope."
+            "url": {
+              "raw": "{{base_url}}/v1/plans",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "plans" ]
+            },
+            "description": "Upload a plan with the structured-workout JSON file. Needs `plans_write` scope. See Wahoo docs for the JSON shape."
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /v1/plans/:id",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "Updated plan JSON file"
+                },
+                {
+                  "key": "name",
+                  "value": "Sweet spot intervals (v2)",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/plans/{{plan_id}}",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "plans", "{{plan_id}}" ]
+            },
+            "description": "Update a plan's file and/or metadata. Needs `plans_write` scope."
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /v1/plans/:id",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/plans/{{plan_id}}",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "plans", "{{plan_id}}" ]
+            },
+            "description": "Delete a plan from the library. Needs `plans_write` scope."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Routes",
+      "description": "GPX/FIT route files. Routes sync to the Wahoo cloud and to the ELEMNT head unit directly, but explicitly NOT to the ELEMNT-App in between (per Wahoo docs). Read with `routes_read`, write with `routes_write`.",
+      "item": [
+        {
+          "name": "GET /v1/routes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/routes",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "routes" ]
+            },
+            "description": "List every route in the user's library."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /v1/routes/:id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/routes/{{route_id}}",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "routes", "{{route_id}}" ]
+            },
+            "description": "Single route by id."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /v1/routes",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "FIT route file"
+                },
+                {
+                  "key": "name",
+                  "value": "Saturday loop",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "Hilly home loop, 60km",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/routes",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "routes" ]
+            },
+            "description": "Upload a FIT route. Needs `routes_write` scope."
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /v1/routes/:id",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "Updated FIT route file"
+                },
+                {
+                  "key": "name",
+                  "value": "Saturday loop (v2)",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/routes/{{route_id}}",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "routes", "{{route_id}}" ]
+            },
+            "description": "Update a route's file and/or metadata. Needs `routes_write` scope."
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /v1/routes/:id",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/routes/{{route_id}}",
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "routes", "{{route_id}}" ]
+            },
+            "description": "Delete a route. Needs `routes_write` scope."
           },
           "response": []
         }
@@ -456,15 +764,10 @@
             "header": [],
             "url": {
               "raw": "{{base_url}}/v1/permissions",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "v1",
-                "permissions"
-              ]
+              "host": [ "{{base_url}}" ],
+              "path": [ "v1", "permissions" ]
             },
-            "description": "Revokes the current OAuth grant. Returns 204. Use this when you're done iterating — Wahoo caps you at 10 token slots per account."
+            "description": "Revokes the current OAuth grant. Returns 204. Use this when you're done iterating — starting 2026-01-01 Wahoo caps you at 10 unrevoked access tokens per user per app."
           },
           "response": []
         }
