@@ -8,39 +8,32 @@ This page focuses on the dashboard itself.
 
 ## What you see
 
-```text
-┌──────────────────────────────┬──────────────────────────────┐
-│  Map                         │  Workout                     │
-│   ┌────────────────────┐     │  • Start (last_workout)      │
-│   │     Leaflet map    │     │  • Name / Type / Indoor      │
-│   │  with picker ▼     │     │  • Route ID / Plan ID        │
-│   └────────────────────┘     │  • Selection (pin)           │
-├──────────────────────────────┼──────────────────────────────┤
-│  Time & distance             │  Power & body                │
-│  • Duration (active/total/   │  • Avg power / NP / TSS      │
-│    paused)                   │  • Work                      │
-│  • Distance / Ascent         │  • Avg HR / Cadence          │
-│  • Avg speed / Calories      │                              │
-├──────────────────────────────┴──────────────────────────────┤
-│  Lifetime                                                   │
-│  • Workouts / Distance / Ascent / Duration                  │
-│  • Calories / Work / TSS                                    │
-│    (state_class=total_increasing — drop a utility_meter     │
-│     helper on top for weekly / monthly / yearly buckets)    │
-├─────────────────────────────────────────────────────────────┤
-│  Outdoor vs indoor                                          │
-│  Markdown table reading the ``outdoor`` / ``indoor``        │
-│  attributes that each lifetime sensor exposes. Workouts     │
-│  persisted before 0.7.2 had no location flag and land in    │
-│  neither column — they only count in the headline totals    │
-│  above.                                                     │
-├─────────────────────────────────────────────────────────────┤
-│  Profile                                                    │
-│  • FTP / Critical power                                     │
-│    Zone thresholds (zone_1…zone_7) ride along as            │
-│    attributes on sensor.hawahooligan_ftp.                   │
-└─────────────────────────────────────────────────────────────┘
-```
+![HAWahooligan dashboard with workout picker, Leaflet map, lifetime totals and outdoor vs indoor breakdown](./dashboard-hawahooligan_wahoo.png)
+
+Live screenshot from a German Home Assistant install — entity IDs are
+locale-independent (pinned to the English slug since 0.7.8), only the
+friendly names follow the user's HA language. Seven sections, top to
+bottom:
+
+- **Map** — workout picker dropdown above a Leaflet iframe that
+  renders the selected ride's GPS track.
+- **Workout** — start time, name, type, indoor flag, route / plan
+  IDs, current selection.
+- **Time & distance** — active / total / paused duration, distance,
+  ascent, average speed, calories.
+- **Power & body** — average power, normalized power, TSS, work,
+  average heart rate, average cadence.
+- **Lifetime** — total workouts, distance, ascent, duration,
+  calories, work, TSS. All carry ``state_class=total_increasing`` so
+  a utility_meter helper gives you weekly / monthly / yearly buckets
+  with zero extra code.
+- **Outdoor vs indoor** — Markdown table reading the ``outdoor`` /
+  ``indoor`` attributes from every lifetime sensor. Workouts
+  persisted before 0.7.2 had no location flag and don't land in
+  either column — they only count in the headline totals above.
+- **Profile** — FTP and critical power. Zone thresholds
+  (``zone_1`` … ``zone_7``) ride along as attributes on
+  ``sensor.hawahooligan_ftp``.
 
 ## Wiring it up
 

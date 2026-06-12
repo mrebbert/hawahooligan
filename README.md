@@ -117,6 +117,12 @@ You need your own Wahoo OAuth credentials.
      5000 / day) via Wahoo's review process.
 3. Save and note the **client_id** and **client_secret**.
 
+> Want to poke the Wahoo Cloud API directly from a terminal to debug
+> what the integration sees (or to explore endpoints it doesn't surface
+> yet)? See [`docs/wahoo-cloud-api-cli.md`](./docs/wahoo-cloud-api-cli.md)
+> for the full curl + jq cookbook (OAuth flow, every read endpoint with
+> examples, rate-limit notes, useful jq recipes).
+
 ### Step 3 — Add the integration to Home Assistant
 
 [![Add HAWahooligan integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=hawahooligan)
