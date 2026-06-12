@@ -50,6 +50,14 @@
       "lifetime_work": { "name": "Lifetime work" },
       "lifetime_tss": { "name": "Lifetime TSS" },
       "lifetime_workouts": { "name": "Lifetime workouts" },
+      "rolling_distance_7d": { "name": "Distance (7d)" },
+      "rolling_distance_28d": { "name": "Distance (28d)" },
+      "rolling_duration_7d": { "name": "Duration (7d)" },
+      "rolling_duration_28d": { "name": "Duration (28d)" },
+      "rolling_workouts_7d": { "name": "Workouts (7d)" },
+      "rolling_workouts_28d": { "name": "Workouts (28d)" },
+      "rolling_tss_7d": { "name": "TSS (7d)" },
+      "rolling_tss_28d": { "name": "TSS (28d)" },
       "ftp": { "name": "FTP" },
       "critical_power": { "name": "Critical power" }
     }
