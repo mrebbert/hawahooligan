@@ -129,6 +129,16 @@
           "description": "Nur erforderlich, wenn mehr als ein Wahoo-Konto konfiguriert ist."
         }
       }
+    },
+    "refresh_power_zones": {
+      "name": "FTP / Power Zones aktualisieren",
+      "description": "Erzwingt eine sofortige Aktualisierung der FTP-, Critical-Power- und Zonen-Schwellen-Sensoren statt auf den regulären 24-Stunden-Zyklus zu warten. Fire-and-forget — läuft im Hintergrund und aktualisiert die Sensoren sobald Wahoo antwortet.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Konfigurationseintrag",
+          "description": "Nur erforderlich, wenn mehr als ein Wahoo-Konto konfiguriert ist."
+        }
+      }
     }
   }
 }

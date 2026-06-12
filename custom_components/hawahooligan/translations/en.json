@@ -129,6 +129,16 @@
           "description": "Only required when more than one Wahoo account is configured."
         }
       }
+    },
+    "refresh_power_zones": {
+      "name": "Refresh FTP / power zones",
+      "description": "Force an immediate refresh of the FTP, Critical Power, and zone-threshold sensors instead of waiting for the regular 24-hour cycle. Fire-and-forget — runs in the background and updates the sensors when Wahoo responds.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "Only required when more than one Wahoo account is configured."
+        }
+      }
     }
   }
 }

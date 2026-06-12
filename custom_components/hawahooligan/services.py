@@ -12,10 +12,22 @@
   newest workout again. Used by the bundled viewer dropdown so picking a
   ride from the map also updates the sensor cards next to it.
 
+``hawahooligan.full_backfill``
+  Paginate through the user's entire Wahoo history and feed the lifetime
+  totals. Rate-limit aware: Sandbox-safe default budget, bails after 3
+  consecutive 429s. ``with_tracks: true`` also renders every historic
+  outdoor GeoJSON.
+
 ``hawahooligan.cleanup_geojson``
   Prune cached GeoJSON tracks older than ``max_age_days`` days from
   ``<config>/www/hawahooligan/``. The cache grows unbounded otherwise —
   this is the manual escape hatch users can wire to a nightly automation.
+
+``hawahooligan.refresh_power_zones``
+  Force an immediate refresh of the FTP / Critical Power / zone-threshold
+  sensors instead of waiting for the regular 24-hour cycle. Useful after
+  updating FTP in the Wahoo app, or after a Reauth that finally granted
+  the ``power_zones_read`` scope. Fire-and-forget background task.
 """
 
 from __future__ import annotations
@@ -36,6 +48,7 @@ from .const import (
     FULL_BACKFILL_MAX_PAGES,
     SERVICE_CLEANUP_GEOJSON,
     SERVICE_FULL_BACKFILL,
+    SERVICE_REFRESH_POWER_ZONES,
     SERVICE_RENDER_WORKOUT,
     SERVICE_SELECT_WORKOUT,
 )
@@ -99,6 +112,12 @@ _CLEANUP_SCHEMA = vol.Schema(
     }
 )
 
+_REFRESH_POWER_ZONES_SCHEMA = vol.Schema(
+    {
+        vol.Optional(_ATTR_CONFIG_ENTRY_ID): str,
+    }
+)
+
 
 _FULL_BACKFILL_SCHEMA = vol.Schema(
     {
@@ -148,6 +167,13 @@ def async_register_services(hass: HomeAssistant) -> None:
             _handle_cleanup_geojson,
             schema=_CLEANUP_SCHEMA,
         )
+    if not hass.services.has_service(DOMAIN, SERVICE_REFRESH_POWER_ZONES):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_REFRESH_POWER_ZONES,
+            _handle_refresh_power_zones,
+            schema=_REFRESH_POWER_ZONES_SCHEMA,
+        )
 
 
 @callback
@@ -158,6 +184,7 @@ def async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_SELECT_WORKOUT,
         SERVICE_FULL_BACKFILL,
         SERVICE_CLEANUP_GEOJSON,
+        SERVICE_REFRESH_POWER_ZONES,
     ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)
@@ -249,12 +276,42 @@ async def _handle_cleanup_geojson(call: ServiceCall) -> None:
     )
 
 
-def _resolve_coordinator(hass: HomeAssistant, entry_id: str | None):
-    """Locate a loaded HAWahooligan coordinator.
+async def _handle_refresh_power_zones(call: ServiceCall) -> None:
+    entry = _resolve_entry(call.hass, call.data.get(_ATTR_CONFIG_ENTRY_ID))
+    coordinator = entry.runtime_data.power_zones_coordinator
+
+    async def _run() -> None:
+        try:
+            await coordinator.async_refresh()
+        except Exception as err:  # noqa: BLE001 — service must not crash HA
+            _LOGGER.warning("refresh_power_zones aborted: %s", err)
+            return
+        if coordinator.last_update_success:
+            _LOGGER.info(
+                "refresh_power_zones: power zones updated (FTP / Critical Power "
+                "sensors now reflect the latest Wahoo response)"
+            )
+        else:
+            _LOGGER.warning(
+                "refresh_power_zones: Wahoo refresh failed — sensors keep their "
+                "previous values. Check the log for the underlying error."
+            )
+
+    # Fire-and-forget so a rate-limited Wahoo response doesn't make the
+    # service-call dialog hang for up to 300 s on a Retry-After sleep.
+    call.hass.async_create_background_task(_run(), name="hawahooligan_refresh_power_zones")
+    _LOGGER.info(
+        "refresh_power_zones: kicked off background refresh for entry %s",
+        entry.entry_id,
+    )
+
+
+def _resolve_entry(hass: HomeAssistant, entry_id: str | None) -> HawahooliganConfigEntry:
+    """Locate a loaded HAWahooligan config entry — the shared resolver.
 
     With a single configured account (the common case) callers can omit
     ``config_entry_id``; with multiple accounts we require the caller to be
-    explicit so we don't render to the wrong account's directory.
+    explicit so we don't act on the wrong account.
     """
     entries: list[HawahooliganConfigEntry] = [
         entry
@@ -269,13 +326,14 @@ def _resolve_coordinator(hass: HomeAssistant, entry_id: str | None):
             raise ServiceValidationError(
                 "Multiple HAWahooligan accounts configured — set `config_entry_id` to pick one."
             )
-        entry = entries[0]
-    else:
-        matching = [e for e in entries if e.entry_id == entry_id]
-        if not matching:
-            raise ServiceValidationError(
-                f"No loaded HAWahooligan config entry with id {entry_id!r}"
-            )
-        entry = matching[0]
+        return entries[0]
 
-    return entry.runtime_data.coordinator
+    matching = [e for e in entries if e.entry_id == entry_id]
+    if not matching:
+        raise ServiceValidationError(f"No loaded HAWahooligan config entry with id {entry_id!r}")
+    return matching[0]
+
+
+def _resolve_coordinator(hass: HomeAssistant, entry_id: str | None):
+    """Thin wrapper kept for the workout-coordinator callers."""
+    return _resolve_entry(hass, entry_id).runtime_data.coordinator

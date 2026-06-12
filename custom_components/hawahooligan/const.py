@@ -71,6 +71,12 @@ EVENT_BACKFILL_PROGRESS: Final = "hawahooligan_full_backfill_progress"
 # and grows unbounded with backfills + render_workout calls — this lets a
 # nightly automation cap it without manual file management.
 SERVICE_CLEANUP_GEOJSON: Final = "cleanup_geojson"
+
+# Force-refresh the FTP / Critical-Power / zone-thresholds sensors without
+# waiting for the regular 24-hour power-zones coordinator cycle. Useful
+# after updating FTP in the Wahoo app, or after a Reauth that gave the
+# integration the ``power_zones_read`` scope for the first time.
+SERVICE_REFRESH_POWER_ZONES: Final = "refresh_power_zones"
 # Default age threshold (days) when the caller omits ``max_age_days``.
 # 180 covers two seasons of riding so historic comparison still works
 # without paying for stale long-tail tracks.

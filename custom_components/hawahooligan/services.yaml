@@ -149,3 +149,21 @@ cleanup_geojson:
       selector:
         config_entry:
           integration: hawahooligan
+
+refresh_power_zones:
+  name: Refresh FTP / power zones
+  description: >-
+    Force an immediate refresh of the FTP, Critical Power, and zone
+    threshold sensors instead of waiting for the regular 24-hour cycle.
+    Useful after updating FTP in the Wahoo app or after a Reauth that
+    grants the ``power_zones_read`` scope for the first time.
+    Fire-and-forget: the call returns immediately, the refresh runs in
+    the background and updates the sensors when Wahoo responds.
+  fields:
+    config_entry_id:
+      name: Config entry
+      description: Only required when more than one Wahoo account is configured.
+      required: false
+      selector:
+        config_entry:
+          integration: hawahooligan
