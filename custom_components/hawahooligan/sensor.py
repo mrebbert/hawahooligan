@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -29,6 +29,7 @@ from . import HawahooliganConfigEntry
 from .const import DOMAIN
 from .coordinator import WahooCoordinator, WahooPowerZonesCoordinator, WorkoutData
 from .power_zones import PowerZonesData
+from .rolling import RollingTotals, compute_rolling_totals
 from .totals import LifetimeTotals
 
 # translation_keys whose desired English-style entity_id slug differs from
@@ -274,6 +275,111 @@ LIFETIME_SENSORS: tuple[WahooLifetimeSensorDescription, ...] = (
 )
 
 
+@dataclass(frozen=True, kw_only=True)
+class WahooRollingSensorDescription(SensorEntityDescription):
+    """Describe a trailing-window sensor.
+
+    ``window_days`` is the look-back length; ``value_fn`` picks the
+    headline metric out of :class:`RollingTotals`. ``split_fns`` (when
+    set) is a 2-tuple of ``(outdoor_fn, indoor_fn)`` that drives the
+    ``outdoor`` / ``indoor`` attributes — same shape contract as the
+    lifetime sensors so dashboards can treat both alike.
+    """
+
+    window_days: int
+    value_fn: Callable[[RollingTotals], float | int]
+    split_fns: (
+        tuple[Callable[[RollingTotals], float | int], Callable[[RollingTotals], float | int]] | None
+    ) = None
+
+
+# Trailing-window rollups. Distinct from the lifetime totals because the
+# state SHRINKS when a workout falls out of the window — that's why these
+# carry ``state_class=measurement``, not ``total_increasing``. The recorder
+# stores per-state-change history but doesn't try to derive consumption
+# deltas (which would be nonsense for "last 7 days distance").
+ROLLING_SENSORS: tuple[WahooRollingSensorDescription, ...] = (
+    WahooRollingSensorDescription(
+        key="rolling_distance_7d",
+        translation_key="rolling_distance_7d",
+        device_class=SensorDeviceClass.DISTANCE,
+        native_unit_of_measurement=UnitOfLength.KILOMETERS,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        window_days=7,
+        value_fn=lambda t: t.distance_km,
+        split_fns=(lambda t: t.distance_outdoor_km, lambda t: t.distance_indoor_km),
+    ),
+    WahooRollingSensorDescription(
+        key="rolling_distance_28d",
+        translation_key="rolling_distance_28d",
+        device_class=SensorDeviceClass.DISTANCE,
+        native_unit_of_measurement=UnitOfLength.KILOMETERS,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        window_days=28,
+        value_fn=lambda t: t.distance_km,
+        split_fns=(lambda t: t.distance_outdoor_km, lambda t: t.distance_indoor_km),
+    ),
+    WahooRollingSensorDescription(
+        key="rolling_duration_7d",
+        translation_key="rolling_duration_7d",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+        window_days=7,
+        value_fn=lambda t: t.duration_min,
+        split_fns=(lambda t: t.duration_outdoor_min, lambda t: t.duration_indoor_min),
+    ),
+    WahooRollingSensorDescription(
+        key="rolling_duration_28d",
+        translation_key="rolling_duration_28d",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+        window_days=28,
+        value_fn=lambda t: t.duration_min,
+        split_fns=(lambda t: t.duration_outdoor_min, lambda t: t.duration_indoor_min),
+    ),
+    WahooRollingSensorDescription(
+        key="rolling_workouts_7d",
+        translation_key="rolling_workouts_7d",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+        window_days=7,
+        value_fn=lambda t: t.workout_count,
+        split_fns=(lambda t: t.workout_count_outdoor, lambda t: t.workout_count_indoor),
+    ),
+    WahooRollingSensorDescription(
+        key="rolling_workouts_28d",
+        translation_key="rolling_workouts_28d",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+        window_days=28,
+        value_fn=lambda t: t.workout_count,
+        split_fns=(lambda t: t.workout_count_outdoor, lambda t: t.workout_count_indoor),
+    ),
+    WahooRollingSensorDescription(
+        key="rolling_tss_7d",
+        translation_key="rolling_tss_7d",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+        window_days=7,
+        value_fn=lambda t: t.tss,
+    ),
+    WahooRollingSensorDescription(
+        key="rolling_tss_28d",
+        translation_key="rolling_tss_28d",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+        window_days=28,
+        value_fn=lambda t: t.tss,
+    ),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: HawahooliganConfigEntry,
@@ -290,6 +396,10 @@ async def async_setup_entry(
     entities.extend(
         WahooLifetimeSensor(coordinator, entry.entry_id, description)
         for description in LIFETIME_SENSORS
+    )
+    entities.extend(
+        WahooRollingSensor(coordinator, entry.entry_id, description)
+        for description in ROLLING_SENSORS
     )
     entities.append(WahooFtpSensor(power_zones_coordinator, entry.entry_id))
     entities.append(WahooCriticalPowerSensor(power_zones_coordinator, entry.entry_id))
@@ -473,6 +583,55 @@ class WahooLifetimeSensor(_WahooDescriptionEntity):
             "outdoor": totals.sum(description.field_name, indoor=False),
             "indoor": totals.sum(description.field_name, indoor=True),
         }
+
+
+class WahooRollingSensor(_WahooDescriptionEntity):
+    """Trailing-window rollup over the coordinator's cached history.
+
+    Computes ``RollingTotals`` at every state read from
+    :func:`compute_rolling_totals` against the live ``_detail_cache`` /
+    ``_workouts_index``. The compute is O(n) on the index size (small
+    even for power users — thousands of workouts at most) so the
+    on-demand path stays cheap and we don't have to invalidate a stash
+    on every coordinator poll. Indoor / outdoor sub-sums ride along as
+    attributes via ``split_fns`` — matches the lifetime-sensor shape so
+    Lovelace templates can treat both sensor families identically.
+    """
+
+    entity_description: WahooRollingSensorDescription
+
+    @property
+    def available(self) -> bool:
+        """Available whenever the workouts index has at least one entry.
+
+        A cold-start install with no cache hits returns 0 across the
+        board, which is a valid state; reporting "unavailable" instead
+        would make the cards blank on first boot. The window contract is
+        "what we know about, summed" — zero is the honest answer when
+        nothing is known yet.
+        """
+        return True
+
+    def _totals(self) -> RollingTotals:
+        return compute_rolling_totals(
+            self.coordinator._detail_cache,
+            self.coordinator._workouts_index,
+            self.entity_description.window_days,
+            datetime.now(UTC),
+        )
+
+    @property
+    def native_value(self) -> float | int:
+        return self.entity_description.value_fn(self._totals())
+
+    @property
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:
+        split = self.entity_description.split_fns
+        if split is None:
+            return None
+        totals = self._totals()
+        outdoor_fn, indoor_fn = split
+        return {"outdoor": outdoor_fn(totals), "indoor": indoor_fn(totals)}
 
 
 class WahooFtpSensor(CoordinatorEntity[WahooPowerZonesCoordinator], SensorEntity):

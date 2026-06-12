@@ -138,6 +138,10 @@ async def test_per_workout_sensors_follow_coordinator_data_not_update_success(
         if ent.platform.platform_name == DOMAIN
         and ent.entity_id.startswith("sensor.hawahooligan_")
         and not ent.entity_id.startswith("sensor.hawahooligan_lifetime_")
+        # Rolling-window sensors read the cached workouts index + detail
+        # cache directly (not coordinator.data), so they're available
+        # whenever the integration is loaded — same contract as lifetime.
+        and not ent.entity_id.startswith("sensor.hawahooligan_rolling_")
         and ent.entity_id
         not in {
             # FTP / Critical Power live on the power_zones coordinator;

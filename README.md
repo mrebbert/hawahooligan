@@ -375,25 +375,107 @@ every restart.
 ## Advanced: lifetime totals + utility_meter
 
 Each lifetime sensor carries `state_class=total_increasing`, so the
-Home Assistant recorder keeps long-term statistics automatically. To
-get weekly / monthly / yearly buckets:
+Home Assistant recorder keeps long-term statistics automatically.
+That's also the exact interface HA's built-in
+[`utility_meter`](https://www.home-assistant.io/integrations/utility_meter/)
+integration consumes — it gives you daily / weekly / monthly / yearly
+buckets for free, no Python, no template sensors.
+
+### Quick path (HA UI, per sensor)
 
 1. **Settings → Devices & Services → Helpers → Create helper →
    Utility Meter**
 2. Source: pick any `sensor.hawahooligan_lifetime_*`
 3. Cycle: `daily`, `weekly`, `monthly`, `yearly` …
 
-The result is `sensor.<your_helper>_monthly` with your monthly km /
-TSS / etc. — no Python, no YAML templates.
+The result is `sensor.<your_helper>` with your weekly km / TSS /
+etc., resetting at the cycle boundary.
 
-Indoor / outdoor breakdown lives on the same lifetime sensors as the
-`outdoor` and `indoor` attributes. The example dashboard renders them
-as a compact Markdown table that picks up your locale automatically
-via `state_attr('sensor.X', 'friendly_name')` (German HA → "Distanz
-insgesamt"). Each cell falls back to a hard-coded English label when
-the entity isn't loaded yet, so the table stays render-safe during HA
-startup instead of throwing `UndefinedError: 'None' has no attribute
-'name'`.
+### Bulk path (one YAML block, all the buckets you actually want)
+
+Paste this into `configuration.yaml` and restart HA. You get sixteen
+ready-made aggregations across the four metrics most dashboards
+actually need:
+
+```yaml
+utility_meter:
+  hawahooligan_distance_daily:
+    source: sensor.hawahooligan_lifetime_distance
+    cycle: daily
+  hawahooligan_distance_weekly:
+    source: sensor.hawahooligan_lifetime_distance
+    cycle: weekly
+  hawahooligan_distance_monthly:
+    source: sensor.hawahooligan_lifetime_distance
+    cycle: monthly
+  hawahooligan_distance_yearly:
+    source: sensor.hawahooligan_lifetime_distance
+    cycle: yearly
+  hawahooligan_duration_weekly:
+    source: sensor.hawahooligan_lifetime_duration
+    cycle: weekly
+  hawahooligan_duration_monthly:
+    source: sensor.hawahooligan_lifetime_duration
+    cycle: monthly
+  hawahooligan_duration_yearly:
+    source: sensor.hawahooligan_lifetime_duration
+    cycle: yearly
+  hawahooligan_workouts_weekly:
+    source: sensor.hawahooligan_lifetime_workouts
+    cycle: weekly
+  hawahooligan_workouts_monthly:
+    source: sensor.hawahooligan_lifetime_workouts
+    cycle: monthly
+  hawahooligan_workouts_yearly:
+    source: sensor.hawahooligan_lifetime_workouts
+    cycle: yearly
+  hawahooligan_tss_weekly:
+    source: sensor.hawahooligan_lifetime_tss
+    cycle: weekly
+  hawahooligan_tss_monthly:
+    source: sensor.hawahooligan_lifetime_tss
+    cycle: monthly
+  hawahooligan_calories_weekly:
+    source: sensor.hawahooligan_lifetime_calories
+    cycle: weekly
+  hawahooligan_calories_monthly:
+    source: sensor.hawahooligan_lifetime_calories
+    cycle: monthly
+  hawahooligan_ascent_monthly:
+    source: sensor.hawahooligan_lifetime_ascent
+    cycle: monthly
+  hawahooligan_work_monthly:
+    source: sensor.hawahooligan_lifetime_work
+    cycle: monthly
+```
+
+### Rolling vs calendar buckets — which one to use
+
+`utility_meter` cycles are **calendar-aligned**: a `weekly` bucket
+resets every Sunday at midnight. If you want a **rolling 7-day
+window** that includes "the last 7 days ending right now", that's
+what the `rolling_*` sensors (shipped 0.7.20+) cover directly:
+
+| Question | Right sensor |
+|---|---|
+| "How much have I ridden THIS week (Mon–Sun)?" | `utility_meter` weekly bucket |
+| "How much have I ridden in the LAST 7 days?" | `sensor.hawahooligan_rolling_distance_7d` |
+| "Monthly training load this calendar month?" | `utility_meter` monthly bucket on lifetime TSS |
+| "28-day rolling training load (CTL-like)?" | `sensor.hawahooligan_rolling_tss_28d` |
+
+See [docs/dashboard-extras.md](docs/dashboard-extras.md) for ready-made
+Lovelace cards built on top of both flavors.
+
+### Indoor / outdoor breakdown
+
+Indoor / outdoor sub-sums ride along as `outdoor` and `indoor`
+attributes on both the lifetime and the rolling sensors. The example
+dashboard renders them as a compact Markdown table that picks up
+your locale automatically via `state_attr('sensor.X', 'friendly_name')`
+(German HA → "Distanz insgesamt"). Each cell falls back to a hard-coded
+English label when the entity isn't loaded yet, so the table stays
+render-safe during HA startup instead of throwing
+`UndefinedError: 'None' has no attribute 'name'`.
 
 ---
 
