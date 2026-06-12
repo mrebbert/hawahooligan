@@ -282,74 +282,44 @@ and customisation tips (including why the iframe needs
 <details>
 <summary><strong>Sensor cards show "unavailable"</strong></summary>
 
-Home Assistant derives entity IDs from the *translated friendly name*
-of the **active HA locale**, not from the integration's
-`translation_key`. Two common ways this drifts away from the
-documented YAML:
+Two common causes:
 
-1. **Older release of this repo.** The example used the wrong IDs
-   (`_speed_avg` instead of `_average_speed`, …). Re-paste
+1. **Stale dashboard YAML.** Re-paste
    [`dashboard/dashboard.yaml`](./dashboard/dashboard.yaml) from the
    latest release.
-2. **Non-English HA install that observed a sensor for the first
-   time after `de.json` shipped (0.7.0+).** The German friendly name
-   "Kritische Leistung" slugifies to
-   `sensor.hawahooligan_kritische_leistung`, not
-   `sensor.hawahooligan_critical_power`. As of 0.7.8 every sensor
-   overrides `suggested_object_id` so new installs always get the
-   English-style slug regardless of locale. Existing entries are
-   pinned by the registry and don't auto-rename; fix them at
-   **Settings → Devices & Services → HAWahooligan → click an entity →
-   ⚙ → Entity ID** and set the documented form.
+2. **Non-English HA install carrying entity IDs from before 0.7.8.**
+   Old German installs registered e.g. `sensor.hawahooligan_kritische_leistung`
+   instead of `…_critical_power`. Fresh installs are pinned to the
+   English slug; for existing ones, rename at **Settings → Devices &
+   Services → HAWahooligan → entity → ⚙ → Entity ID**.
 
 </details>
 
 <details>
 <summary><strong>The map is a thin strip at the top of its card</strong></summary>
 
-In a `sections` view, Home Assistant's iframe card ignores
-`aspect_ratio`. Set `grid_options.rows: 9` (≈ 500 px) explicitly. The
-example YAML already does this.
+`sections` views ignore `aspect_ratio` on iframe cards. Set
+`grid_options.rows: 9` explicitly (the shipped YAML already does).
 
 </details>
 
 <details>
-<summary><strong>I see the old in-iframe dropdown after upgrading to 0.7.11+</strong></summary>
+<summary><strong>Old in-iframe dropdown still visible after upgrade</strong></summary>
 
-0.7.11 moved the workout picker out of the iframe and into a native
-Home Assistant `SelectEntity`. The packaged `map.html` is
-auto-reprovisioned at HA startup, but your browser still holds the
-previous (v3) viewer in cache. One-time fix: hard-reload the iframe.
-
-- Open the dashboard, right-click the map → "Reload frame" if your
-  browser exposes it.
-- Easier: navigate directly to
-  `<your HA URL>/local/hawahooligan/map.html` and press `Cmd+Shift+R`
-  (macOS) / `Ctrl+Shift+F5` (Windows / Linux), then go back to the
-  dashboard.
-
-From 0.7.12 onwards the viewer ships `Cache-Control: no-store`
-headers so future bumps land on the next page load automatically.
+Your browser cached the old `map.html`. Hard-reload it: open
+`<your HA URL>/local/hawahooligan/map.html` directly and press
+`Cmd+Shift+R` (macOS) / `Ctrl+Shift+F5` (Windows / Linux), then go
+back to the dashboard.
 
 </details>
 
 <details>
-<summary><strong>Picker updates the sensors but the map sits on the previous track</strong></summary>
+<summary><strong>Picker updates sensors but the map sits on the previous track</strong></summary>
 
-The integration writes the new `selected_id` to `workouts.json`
-synchronously when you change the picker (since 0.7.12). The iframe
-polls that file every 5 s, so the map should follow within a
-heartbeat. If it doesn't:
-
-1. Check you're on viewer v4+: the comment block in
-   `<config>/www/hawahooligan/map.html` should read
-   `HAWahooligan-Viewer-Version: 5` (or higher). If it says v3,
-   you're hitting the in-iframe-dropdown stale-cache bug above —
-   hard-reload.
-2. If you're on v4+ and the map still lags, the integration's
-   regular poll didn't fire (rate-limited or auth-failed). Call
-   `hawahooligan.select_workout` from **Developer Tools → Services**
-   to force a refresh.
+Check the `HAWahooligan-Viewer-Version` line in
+`<config>/www/hawahooligan/map.html`. If it's v3, hard-reload (see
+above). If it's v5+ and the map still lags, call
+`hawahooligan.select_workout` from Developer Tools to force a refresh.
 
 </details>
 
@@ -364,59 +334,32 @@ Browser cache on the iframe. Hard-refresh: `Cmd+Shift+R` (macOS),
 <details>
 <summary><strong>"Reauthentication required" notification after upgrading</strong></summary>
 
-0.7.0 added the `power_zones_read` OAuth scope. Existing tokens don't
-carry it, so the first `GET /v1/power_zones` returns 403 and Home
-Assistant schedules a reauth flow. Click **Configure** in the
-notification, walk through the Wahoo OAuth flow once, and the new
-token has every scope. Your config entry, entity history, and
-lifetime totals all survive.
+A scope was added in a newer release. Click **Configure** in the
+notification and walk through OAuth — the config entry, entity
+history, and lifetime totals all survive.
 
 </details>
 
 <details>
 <summary><strong>HTTP 429 — Too Many Requests</strong></summary>
 
-Wahoo's Sandbox tier enforces THREE caps simultaneously: **25 calls /
-5 min**, **100 / hour**, **250 / day**. The integration uses a
-rolling-window budget on the backfill, retries once with
-`Retry-After` on the API client, and bails out after 3 consecutive
-429s on both `async_backfill_recent` and `async_full_backfill` so a
-wedged loop can't burn the entire daily quota. The default
-`full_backfill` budget (8 / 5 min ≈ 96 / hour as of 0.7.14) is sized
-to stay under the hourly cap; lower values (e.g.
-`max_calls_per_window: 4`) leave more headroom for the regular
-15-min poll on a busy account.
+Sandbox limits: **25 / 5 min**, **100 / hour**, **250 / day**. The
+backfill loops bail after 3 consecutive 429s and pick up where they
+left off on the next run; workouts already in totals are skipped.
 
-If you upgrade, restart a few times, AND run the full-history
-backfill on the same day, you can still exhaust the daily 250-call
-quota. The backfill will bail (see logs) and pick up where it left
-off on the next run — workouts already in `coordinator.totals` are
-skipped automatically. Wait until 00:00 UTC for the daily reset, or
-upgrade your Wahoo Developer App to Production (200 / 5 min, 1000 /
-h, 5000 / day) via the Wahoo Developer Portal.
-
-**Picker shows "no GPS track" overlay and the log says
-`On-demand render for outdoor workout N returned no track`:** same
-symptom — the auto-render's single detail call got 429'd. Wait for
-the quota reset and pick the workout again; the auto-render is
-idempotent.
-
-**You picked a workout that's not in the dropdown via the
-`hawahooligan.select_workout` service:** as of 0.7.15 the auto-render
-also fires for IDs that aren't yet in the picker manifest (e.g.
-historic workouts your account knows about but that pre-date the
-manifest accumulator that landed in 0.7.10). Cost is the same single
-detail call; invalid IDs surface as a single 404 with no follow-up.
+If the daily 250-call cap is exhausted: wait for the 00:00 UTC
+reset, or upgrade your Wahoo developer app to Production. Picks that
+trigger an auto-render hit the same limit (one detail call); the
+warning `On-demand render for outdoor workout N returned no track`
+is the signal.
 
 </details>
 
 <details>
 <summary><strong>Wahoo says "token revoked"</strong></summary>
 
-Wahoo expires unused refresh tokens after 60 days. Home Assistant
-pops up a "Reauth" notification automatically — click **Configure**,
-walk through OAuth again, and the same config entry continues with
-all its long-term statistics intact.
+Wahoo expires unused refresh tokens after 60 days. Click **Configure**
+in the reauth notification and walk through OAuth again.
 
 </details>
 

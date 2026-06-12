@@ -1,34 +1,8 @@
-"""HA services for HAWahooligan.
+"""HA service handlers — render_workout, select_workout, full_backfill,
+cleanup_geojson, refresh_power_zones.
 
-``hawahooligan.render_workout``
-  On-demand: fetch a specific Wahoo workout by id and render its FIT file to
-  ``<config>/www/hawahooligan/<id>.geojson``. Used to backfill historic
-  rides older than the first-setup window or to re-render a track after a
-  viewer / parsing change.
-
-``hawahooligan.select_workout``
-  Pin the headline sensors and map viewer to a specific workout id. Pass
-  ``workout_id: latest`` (or ``null``) to release the pin and follow the
-  newest workout again. Used by the bundled viewer dropdown so picking a
-  ride from the map also updates the sensor cards next to it.
-
-``hawahooligan.full_backfill``
-  Paginate through the user's entire Wahoo history and feed the lifetime
-  totals. Rate-limit aware: Sandbox-safe default budget, bails after 3
-  consecutive 429s. ``with_tracks: true`` also renders every historic
-  outdoor GeoJSON.
-
-``hawahooligan.cleanup_geojson``
-  Prune cached GeoJSON tracks older than ``max_age_days`` days from
-  ``<config>/www/hawahooligan/``. The cache grows unbounded otherwise —
-  this is the manual escape hatch users can wire to a nightly automation.
-
-``hawahooligan.refresh_power_zones``
-  Force an immediate refresh of the FTP / Critical Power / zone-threshold
-  sensors instead of waiting for the regular 24-hour cycle. Useful after
-  updating FTP in the Wahoo app, or after a Reauth that finally granted
-  the ``power_zones_read`` scope. Fire-and-forget background task.
-"""
+See ``services.yaml`` + the README services table for per-service params and
+when to use each."""
 
 from __future__ import annotations
 

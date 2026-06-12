@@ -1,17 +1,8 @@
-"""DataUpdateCoordinator for the user's currently-selected Wahoo workout.
+"""DataUpdateCoordinator: one listing call + at most one detail call per poll.
 
-Per poll the coordinator issues one ``GET /v1/workouts?per_page=RECENT_COUNT``
-listing call. By default the newest workout drives the headline sensors; if
-the user explicitly picked a historic workout (via the
-``hawahooligan.select_workout`` service / the bundled viewer dropdown) the
-coordinator follows that selection instead — sensor state and map URL both
-reflect the same chosen ride. The detail call (``GET /v1/workouts/:id``)
-runs at most once per poll and is skipped when the target id is already in
-the in-memory detail cache.
-
-Picker UIs read ``<config>/www/hawahooligan/workouts.json`` (the manifest),
-which now records the current ``selected_id`` so a fresh viewer load can
-restore the right dropdown option.
+Default target is the newest workout; a service / picker selection overrides
+that. Detail responses are cached in memory (and persisted to disk) so
+historic picks are free on subsequent polls.
 """
 
 from __future__ import annotations
@@ -460,12 +451,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         )
 
     def known_workouts(self) -> list[dict[str, Any]]:
-        """Return all known workouts sorted by ``starts`` desc.
-
-        Backs the picker ``SelectEntity.options`` — never mutate the
-        returned dicts in place; each is a shallow copy of the in-memory
-        index entry.
-        """
+        """Return all known workouts sorted by ``starts`` desc (shallow copies)."""
         return sorted(
             (dict(entry) for entry in self._workouts_index.values()),
             key=lambda e: e.get("starts") or "",
@@ -521,35 +507,19 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         return added
 
     async def async_select_workout(self, workout_id: int | None) -> None:
-        """Pin the sensors and map to ``workout_id`` (or ``None`` for latest).
+        """Pin sensors + map to ``workout_id`` (``None`` = follow latest).
 
-        The ``selected_id`` in ``workouts.json`` is rewritten **synchronously**
-        before kicking off the data refresh, so the iframe viewer's 5-second
-        manifest poll picks up the new pin without waiting for the
-        ``async_request_refresh`` cycle to round-trip through the API. With
-        only the request_refresh, a rate-limited account could see the map
-        lag the sensors by tens of seconds.
-
-        For an outdoor + non-manual pick whose GeoJSON isn't on disk yet,
-        kicks off a background render — initial backfill only paints the 20
-        newest tracks, and ``full_backfill`` doesn't render by default, so
-        many users land on an older outdoor ride and see the "no GPS"
-        overlay even though Wahoo HAS the data. The background task fetches
-        detail (1 API call), decodes the FIT (no API cost), writes the
-        ``.geojson``, and re-refreshes the manifest so ``has_track`` flips
-        and the viewer's next poll renders the track.
+        Writes ``selected_id`` to the manifest synchronously so the viewer
+        sees the new pin within its 5-second poll, then kicks off a
+        background render for outdoor picks whose ``.geojson`` isn't on disk.
         """
         if workout_id == self._selected_workout_id:
             return
         self._selected_workout_id = workout_id
-        # Decide whether to auto-render BEFORE the manifest refresh —
-        # ``_refresh_manifest`` rebuilds ``_workouts_index`` from the disk
-        # snapshot, and the disk-vs-memory state can drift briefly during
-        # backfills. Reading the mirror first keeps the decision stable
-        # against the executor-thread interleave.
+        # Snapshot the render decision before ``_refresh_manifest`` rebuilds
+        # ``_workouts_index`` from disk — the in-memory mirror is the stable
+        # read.
         should_render = self._should_render_on_select(workout_id)
-        # ``recent=[]`` keeps the existing workouts intact and only flips
-        # ``selected_id`` on disk + in-memory.
         await self._refresh_manifest([], workout_id)
         if should_render:
             self.hass.async_create_task(
@@ -559,39 +529,21 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         await self.async_request_refresh()
 
     def _should_render_on_select(self, workout_id: int | None) -> bool:
-        """Decide whether to kick off an on-demand render for this pick.
-
-        Unknown workout ids (picks via the ``hawahooligan.select_workout``
-        service for a workout that pre-dates the manifest's accumulator
-        history) also trigger the render — ``async_render_workout`` is
-        cheap and idempotent: indoor / manual / no-file_url detail
-        responses short-circuit before the FIT download, and an invalid
-        id surfaces as a single 404 with no follow-up cost.
-        """
+        """Return True for picks that should trigger a background render."""
         if workout_id is None:
             return False
         entry = self._workouts_index.get(workout_id)
         if entry is None:
-            # Unknown id — let the render fetch the detail and decide
-            # whether there's anything to render. One API call against
-            # an outdoor workout that's missing from the index is the
-            # exact cost we'd pay to surface it to the user any other
-            # way.
+            # Unknown id (service call for a pre-accumulator workout): let
+            # the render fetch detail and decide. Same cost as any other
+            # way of finding out.
             return True
         if entry.get("indoor") or entry.get("manual"):
             return False
         return not entry.get("has_track")
 
     async def _render_selected_workout(self, workout_id: int) -> None:
-        """Render ``<id>.geojson`` then re-write the manifest so ``has_track`` flips.
-
-        Emits an explicit warning when the render returns ``None`` for a
-        workout the index says SHOULD have a track — without it the user
-        just sees the no-GPS overlay and has no idea whether the render
-        was even attempted. The most common cause in the wild is the
-        Wahoo Sandbox quota being exhausted; the warning names the
-        symptom and points at the recovery path (wait for reset).
-        """
+        """Render ``<id>.geojson`` + refresh the manifest so ``has_track`` flips."""
         try:
             url = await self.async_render_workout(workout_id)
         except Exception as err:  # noqa: BLE001 — on-demand render must not crash select
@@ -601,17 +553,12 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             entry = self._workouts_index.get(workout_id)
             if entry and not entry.get("indoor") and not entry.get("manual"):
                 _LOGGER.warning(
-                    "On-demand render for outdoor workout %d returned no "
-                    "track. Most likely the Wahoo Cloud API rate-limited "
-                    "the detail call (Sandbox tier: 25 / 5-min, 100 / hour, "
-                    "250 / day — resets at 00:00 UTC daily). Pick the "
-                    "workout again after the next quota reset, or call "
-                    "hawahooligan.render_workout from Developer Tools.",
+                    "On-demand render for outdoor workout %d returned no track "
+                    "— likely rate-limited. Retry after the next Wahoo quota "
+                    "reset (Sandbox: 00:00 UTC).",
                     workout_id,
                 )
             return
-        # Re-write the manifest so the viewer's next poll sees ``has_track``
-        # as True and renders the track instead of the overlay.
         await self._refresh_manifest([], self._selected_workout_id)
 
     async def _async_update_data(self) -> WorkoutData | None:
@@ -815,20 +762,11 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         return await self._render(workout_id, data.file_url)
 
     async def async_backfill_recent(self, count: int = BACKFILL_COUNT) -> int:
-        """Render + record-totals over the last ``count`` workouts.
+        """Render + record-totals for the last ``count`` workouts; return new-render count.
 
-        Returns the number of newly rendered tracks. The detail call (the only
-        rate-limited part) runs at most once per workout that's still missing
-        from the lifetime totals OR from disk — already-rendered + already-
-        accumulated workouts cost zero API quota on subsequent restarts. Auth
-        failures bubble up so HA can reauth.
-
-        Also refreshes the picker manifest with whatever the listing returned
-        so the viewer sees the historic rides even before the next poll runs.
-
-        Wraps detail calls in the same sandbox-safe rate-limit budget the
-        full-history backfill uses so the initial 20-call burst can't trip
-        the Wahoo Sandbox 25 / 5-min ceiling.
+        Skips workouts already in totals AND on disk. Budgeted against the
+        Sandbox 25 / 5-min ceiling; bails after 3 consecutive 429s. Auth
+        failures bubble up for HA's reauth flow.
         """
         budget = RateLimitBudget(FULL_BACKFILL_DEFAULT_BUDGET, FULL_BACKFILL_DEFAULT_WINDOW_SECONDS)
         await budget.acquire()
@@ -900,21 +838,11 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         max_calls_per_window: int = FULL_BACKFILL_DEFAULT_BUDGET,
         window_seconds: float = FULL_BACKFILL_DEFAULT_WINDOW_SECONDS,
     ) -> int:
-        """Walk the user's whole Wahoo history into lifetime totals.
+        """Paginate the user's whole Wahoo history into lifetime totals.
 
-        Iterates ``GET /v1/workouts?page=N&per_page=FULL_BACKFILL_PER_PAGE``
-        until the API returns an empty list (or ``max_pages`` is reached).
-        For each workout not yet in the totals (and not yet on disk when
-        ``with_tracks=True``), fetches detail and records it.
-
-        Rate-limit budget defaults sit just under the Sandbox 25 / 5-min
-        ceiling — pass higher numbers if your Wahoo app is on the
-        production tier. Auth failures (rotating refresh token, missing
-        scope) bubble up as ``ConfigEntryAuthFailed``; other errors abort
-        the loop and return the count accumulated so far.
-
-        Fires :data:`hawahooligan.const.EVENT_BACKFILL_PROGRESS` after each
-        page so users can wire a notification automation.
+        ``with_tracks=True`` also renders the GeoJSON for outdoor / non-manual
+        workouts. Bails after 3 consecutive 429s; auth failures bubble up as
+        ``ConfigEntryAuthFailed``. Fires ``EVENT_BACKFILL_PROGRESS`` per page.
         """
         budget = RateLimitBudget(max_calls_per_window, window_seconds)
         added_total = 0
