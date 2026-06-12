@@ -1,5 +1,11 @@
 # HAWahooligan — Wahoo Cloud integration for Home Assistant
 
+<p>
+  <img src="./custom_components/hawahooligan/brand/logo.png"
+       alt="Wahoo wordmark"
+       width="360" />
+</p>
+
 [![Tests](https://github.com/mrebbert/hawahooligan/actions/workflows/test.yml/badge.svg)](https://github.com/mrebbert/hawahooligan/actions/workflows/test.yml)
 [![Validate](https://github.com/mrebbert/hawahooligan/actions/workflows/validate.yml/badge.svg)](https://github.com/mrebbert/hawahooligan/actions/workflows/validate.yml)
 [![GitHub release](https://img.shields.io/github/v/release/mrebbert/hawahooligan)](https://github.com/mrebbert/hawahooligan/releases/latest)

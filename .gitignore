@@ -2,6 +2,11 @@
 .claude/
 tasks/
 
+# Local Wahoo brand source kit (.ai, big PNG / JPG masters) — only the
+# resized HACS-ready PNGs under custom_components/hawahooligan/brand/
+# get committed.
+logos/
+
 # macOS
 .DS_Store
 
