@@ -1,0 +1,474 @@
+{
+  "info": {
+    "name": "Wahoo Cloud API",
+    "description": "Manual-test collection for the Wahoo Cloud API endpoints HAWahooligan reads. Mirrors `docs/wahoo-cloud-api-cli.md`. Set `client_id`, `client_secret`, `redirect_uri` in the collection variables, run the OAuth flow once, then call any read endpoint.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://api.wahooligan.com",
+      "type": "string"
+    },
+    {
+      "key": "client_id",
+      "value": "",
+      "type": "string",
+      "description": "Wahoo developer app client id"
+    },
+    {
+      "key": "client_secret",
+      "value": "",
+      "type": "string",
+      "description": "Wahoo developer app client secret"
+    },
+    {
+      "key": "redirect_uri",
+      "value": "https://localhost/callback",
+      "type": "string",
+      "description": "Must match the redirect URI registered in the Wahoo developer app"
+    },
+    {
+      "key": "scope",
+      "value": "user_read workouts_read power_zones_read offline_data",
+      "type": "string"
+    },
+    {
+      "key": "auth_code",
+      "value": "",
+      "type": "string",
+      "description": "Paste the ?code= value from the redirected browser URL"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string",
+      "description": "Populated by the token exchange / refresh requests"
+    },
+    {
+      "key": "refresh_token",
+      "value": "",
+      "type": "string",
+      "description": "Populated by the token exchange / refresh requests"
+    },
+    {
+      "key": "workout_id",
+      "value": "",
+      "type": "string",
+      "description": "Used by the workout detail request"
+    },
+    {
+      "key": "per_page",
+      "value": "20",
+      "type": "string"
+    },
+    {
+      "key": "page",
+      "value": "1",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "OAuth",
+      "description": "Step 1: build the authorize URL in a browser and copy the ?code= from the redirect. Steps 2–3 stay in Postman.",
+      "item": [
+        {
+          "name": "1. Build authorize URL (open in browser)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/oauth/authorize?client_id={{client_id}}&redirect_uri={{redirect_uri}}&response_type=code&scope={{scope}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "oauth",
+                "authorize"
+              ],
+              "query": [
+                {
+                  "key": "client_id",
+                  "value": "{{client_id}}"
+                },
+                {
+                  "key": "redirect_uri",
+                  "value": "{{redirect_uri}}"
+                },
+                {
+                  "key": "response_type",
+                  "value": "code"
+                },
+                {
+                  "key": "scope",
+                  "value": "{{scope}}"
+                }
+              ]
+            },
+            "description": "Right-click this request → Copy URL, paste in a browser, authorize. Wahoo redirects to `redirect_uri?code=…` — copy the code into the `auth_code` collection variable."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Exchange code for tokens",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('access_token', body.access_token);",
+                  "  pm.collectionVariables.set('refresh_token', body.refresh_token);",
+                  "  console.log('Stored access_token + refresh_token. Expires in', body.expires_in, 's');",
+                  "} else {",
+                  "  console.log('Token exchange failed:', pm.response.text());",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "client_id",
+                  "value": "{{client_id}}",
+                  "type": "text"
+                },
+                {
+                  "key": "client_secret",
+                  "value": "{{client_secret}}",
+                  "type": "text"
+                },
+                {
+                  "key": "grant_type",
+                  "value": "authorization_code",
+                  "type": "text"
+                },
+                {
+                  "key": "code",
+                  "value": "{{auth_code}}",
+                  "type": "text"
+                },
+                {
+                  "key": "redirect_uri",
+                  "value": "{{redirect_uri}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/oauth/token",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "description": "Test script stores `access_token` + `refresh_token` into the collection variables on a 200 response."
+          },
+          "response": []
+        },
+        {
+          "name": "3. Refresh access token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('access_token', body.access_token);",
+                  "  pm.collectionVariables.set('refresh_token', body.refresh_token);",
+                  "  console.log('Tokens refreshed. New access token expires in', body.expires_in, 's');",
+                  "} else {",
+                  "  console.log('Refresh failed:', pm.response.text());",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "client_id",
+                  "value": "{{client_id}}",
+                  "type": "text"
+                },
+                {
+                  "key": "client_secret",
+                  "value": "{{client_secret}}",
+                  "type": "text"
+                },
+                {
+                  "key": "grant_type",
+                  "value": "refresh_token",
+                  "type": "text"
+                },
+                {
+                  "key": "refresh_token",
+                  "value": "{{refresh_token}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/oauth/token",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "description": "Wahoo rotates the refresh token on every refresh — the test script auto-stores the new one."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Read",
+      "item": [
+        {
+          "name": "GET /v1/user",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/user",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "user"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /v1/workouts (paginated)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/workouts?per_page={{per_page}}&page={{page}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "workouts"
+              ],
+              "query": [
+                {
+                  "key": "per_page",
+                  "value": "{{per_page}}"
+                },
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /v1/workouts/:id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/workouts/{{workout_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "workouts",
+                "{{workout_id}}"
+              ]
+            },
+            "description": "Set the `workout_id` collection variable first."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /v1/power_zones",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/power_zones",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "power_zones"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Write (Phase 5 — needs extra scopes)",
+      "description": "Not used by HAWahooligan today. Requires re-authorizing with `routes_write` / `plans_write` / `workouts_write` scopes added to the authorize URL.",
+      "item": [
+        {
+          "name": "POST /v1/routes",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "FIT route file"
+                },
+                {
+                  "key": "name",
+                  "value": "My route",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/routes",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "routes"
+              ]
+            },
+            "description": "Needs `routes_write` scope."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /v1/plans",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Sweet spot intervals\",\n  \"description\": \"3x10min @ 88% FTP\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/plans",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "plans"
+              ]
+            },
+            "description": "Needs `plans_write` scope. Real payload shape is richer — see Wahoo docs."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /v1/workout_file_uploads",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "FIT workout file"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/workout_file_uploads",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "workout_file_uploads"
+              ]
+            },
+            "description": "Needs `workouts_write` scope."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Hygiene",
+      "item": [
+        {
+          "name": "DELETE /v1/permissions (deauthorize)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/permissions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "permissions"
+              ]
+            },
+            "description": "Revokes the current OAuth grant. Returns 204. Use this when you're done iterating — Wahoo caps you at 10 token slots per account."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

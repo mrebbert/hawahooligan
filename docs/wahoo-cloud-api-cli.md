@@ -14,6 +14,11 @@ from a terminal. Useful when you want to:
 > [`jq`](https://jqlang.github.io/jq/) to format / filter the JSON
 > response. Install both before continuing.
 
+> Prefer a GUI? Import
+> [`wahoo-cloud-api.postman_collection.json`](./wahoo-cloud-api.postman_collection.json)
+> into Postman / Insomnia / Bruno. Same endpoints, same OAuth flow,
+> auto-stores access + refresh tokens via test scripts.
+
 ## Contents
 
 - [Prerequisites](#prerequisites)
