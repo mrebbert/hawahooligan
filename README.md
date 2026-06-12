@@ -1,16 +1,12 @@
 # HAWahooligan — Wahoo Cloud integration for Home Assistant
 
-<p>
-  <img src="./custom_components/hawahooligan/brand/logo.png"
-       alt="Wahoo wordmark"
-       width="360" />
-</p>
+![Wahoo wordmark](https://raw.githubusercontent.com/mrebbert/hawahooligan/main/custom_components/hawahooligan/brand/logo.png)
 
 [![Tests](https://github.com/mrebbert/hawahooligan/actions/workflows/test.yml/badge.svg)](https://github.com/mrebbert/hawahooligan/actions/workflows/test.yml)
 [![Validate](https://github.com/mrebbert/hawahooligan/actions/workflows/validate.yml/badge.svg)](https://github.com/mrebbert/hawahooligan/actions/workflows/validate.yml)
 [![GitHub release](https://img.shields.io/github/v/release/mrebbert/hawahooligan)](https://github.com/mrebbert/hawahooligan/releases/latest)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
-[![License](https://img.shields.io/github/license/mrebbert/hawahooligan)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/mrebbert/hawahooligan/blob/main/LICENSE)
 
 > **Track your Wahoo rides in Home Assistant — sensors for every ride
 > metric, lifetime totals, a built-in Leaflet map for GPS tracks, and
@@ -125,7 +121,7 @@ You need your own Wahoo OAuth credentials.
 
 > Want to poke the Wahoo Cloud API directly from a terminal to debug
 > what the integration sees (or to explore endpoints it doesn't surface
-> yet)? See [`docs/wahoo-cloud-api-cli.md`](./docs/wahoo-cloud-api-cli.md)
+> yet)? See [`docs/wahoo-cloud-api-cli.md`](https://github.com/mrebbert/hawahooligan/blob/main/docs/wahoo-cloud-api-cli.md)
 > for the full curl + jq cookbook (OAuth flow, every read endpoint with
 > examples, rate-limit notes, useful jq recipes).
 
@@ -250,7 +246,7 @@ Lovelace iframe card (the example dashboard does this for you).
 
 ## Dashboard example
 
-[`dashboard/dashboard.yaml`](./dashboard/dashboard.yaml) is a
+[`dashboard/dashboard.yaml`](https://github.com/mrebbert/hawahooligan/blob/main/dashboard/dashboard.yaml) is a
 ready-to-paste Lovelace view with **seven sections**:
 
 1. **Map** — Leaflet iframe with the picker card above it.
@@ -271,7 +267,7 @@ ready-to-paste Lovelace view with **seven sections**:
 To install: open your dashboard → ⋮ → **Edit dashboard** → ⋮ →
 **Raw configuration editor** → paste the file's `views:` block.
 
-See [`dashboard/README.md`](./dashboard/README.md) for the walkthrough
+See [`dashboard/README.md`](https://github.com/mrebbert/hawahooligan/blob/main/dashboard/README.md) for the walkthrough
 and customisation tips (including why the iframe needs
 `grid_options.rows` instead of `aspect_ratio`).
 
@@ -285,7 +281,7 @@ and customisation tips (including why the iframe needs
 Two common causes:
 
 1. **Stale dashboard YAML.** Re-paste
-   [`dashboard/dashboard.yaml`](./dashboard/dashboard.yaml) from the
+   [`dashboard/dashboard.yaml`](https://github.com/mrebbert/hawahooligan/blob/main/dashboard/dashboard.yaml) from the
    latest release.
 2. **Non-English HA install carrying entity IDs from before 0.7.8.**
    Old German installs registered e.g. `sensor.hawahooligan_kritische_leistung`
@@ -446,4 +442,4 @@ custom_components/hawahooligan/
 
 ## License
 
-[MIT](./LICENSE).
+[MIT](https://github.com/mrebbert/hawahooligan/blob/main/LICENSE).
