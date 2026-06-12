@@ -10,6 +10,9 @@ on:
     # hassfest rule change) before the next development push hits CI.
     - cron: "0 6 * * *"
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   hassfest:
     name: hassfest

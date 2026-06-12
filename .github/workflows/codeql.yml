@@ -9,6 +9,9 @@ on:
     # Weekly scan on Saturday at 06:30 UTC
     - cron: "30 6 * * 6"
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   analyze:
     name: Analyze (python)

@@ -6,6 +6,14 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Opt every JavaScript action (including transitive ``actions/cache@v4``
+# pulled in by setup-python / pre-commit) onto Node.js 24. Node 20 is
+# deprecated on Sept 16 2026; this defuses the warning before it
+# becomes a hard failure. Safe override — the runtime contract for
+# Node actions is the same across 20 → 24.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   unit-tests:
     name: Unit tests (helpers)
