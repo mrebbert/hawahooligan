@@ -17,13 +17,15 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Create release archive
-        # HACS expects a flat zip whose top-level directory matches the
-        # integration's domain (custom_components/<domain>/…). The archive
-        # ships the integration tree only — viewer, manifest, services,
-        # translations included — so users can side-load without HACS too.
+        # HACS extracts release ZIPs straight into ``custom_components/<domain>/``,
+        # so the archive must contain the integration FILES at its root, NOT a
+        # wrapper directory. Putting ``hawahooligan/`` at the top of the zip
+        # would land the install at ``custom_components/hawahooligan/hawahooligan/``
+        # — HA then reports "Integration 'hawahooligan' not found". Burned in
+        # v0.7.23, fixed in v0.7.24.
         run: |
-          cd custom_components
-          zip -r ../hawahooligan.zip hawahooligan/
+          cd custom_components/hawahooligan
+          zip -r ../../hawahooligan.zip .
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v3
