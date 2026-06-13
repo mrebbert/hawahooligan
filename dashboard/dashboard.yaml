@@ -1,27 +1,39 @@
-# Example Lovelace view for HAWahooligan.
+# Example Lovelace dashboard for HAWahooligan.
 #
-# Pairs the bundled Leaflet viewer (/local/hawahooligan/map.html) with the
-# workout sensors, grouped by topic so the long list of measurements doesn't
-# overwhelm the map. No HACS frontend cards required — iframe and entities
-# cards ship with Home Assistant.
+# Three views, each one a focused slice of the integration's data:
 #
-# Entity IDs in this file follow what HA actually registers, which is the
-# slugified English translation NAME — not the translation_key. So
+#   1. Route    — picker-driven deep-dive into one ride: map, workout
+#                 metadata, time/distance, power/body.
+#   2. Lifetime — accumulated totals + indoor/outdoor split + a quick
+#                 trailing-window block (7d/28d) for "recent activity".
+#   3. Profile  — FTP, critical power, the seven power-zone boundaries.
+#                 Editing from the dashboard is read-only for now —
+#                 placeholder card points at the Companion App / Postman.
+#                 Tracked in tasks/todo.md (Quick Win #5, set_power_zones
+#                 service).
+#
+# Entity IDs follow what HA actually registers, which is the slugified
+# English translation NAME — not the translation_key. So
 # ``translation_key: speed_avg`` + ``name: "Average speed"`` becomes
 # ``sensor.hawahooligan_average_speed`` (NOT ``..._speed_avg``).
-# If your entity registry shows different ids — e.g. because you carried an
-# entity over from an earlier version of the integration — adjust the
+# If your entity registry shows different ids — e.g. because you carried
+# an entity over from an earlier version of the integration — adjust the
 # entries below or rename the entities in the HA Settings → Entities UI.
 #
-# Layout note: this view uses the modern `sections` type. In a sections grid
-# the iframe card's `aspect_ratio` is ignored (HA frontend treats grid
-# placement as authoritative — see hui-iframe-card.ts), so the map needs an
-# explicit ``grid_options.rows`` to get height. Each row is ~56px;
-# ``rows: 9`` is a comfortable starting point — increase for a bigger map.
+# Layout note: every view uses the modern `sections` type. In a sections
+# grid the iframe card's `aspect_ratio` is ignored (HA frontend treats
+# grid placement as authoritative — see hui-iframe-card.ts), so the map
+# needs an explicit ``grid_options.rows`` to get height. Each row is
+# ~56px; ``rows: 9`` is a comfortable starting point — increase for a
+# bigger map.
+
 views:
-  - title: Wahoo
-    path: wahoo
-    icon: mdi:bike
+  # ──────────────────────────────────────────────────────────────────
+  # View 1 — Route. Picker-driven deep-dive into the chosen ride.
+  # ──────────────────────────────────────────────────────────────────
+  - title: Route
+    path: route
+    icon: mdi:map-marker-path
     type: sections
     max_columns: 2
     sections:
@@ -132,15 +144,24 @@ views:
               columns: 12
               rows: auto
 
+  # ──────────────────────────────────────────────────────────────────
+  # View 2 — Lifetime. Totals + indoor/outdoor + trailing windows.
+  # ──────────────────────────────────────────────────────────────────
+  - title: Lifetime
+    path: lifetime
+    icon: mdi:counter
+    type: sections
+    max_columns: 2
+    sections:
       - type: grid
         cards:
           - type: heading
-            heading: Lifetime
+            heading: Lifetime totals
             heading_style: title
             icon: mdi:counter
           # Lifetime sensors carry state_class=total_increasing — drop a
-          # utility_meter helper on top of any of them via Settings →
-          # Helpers → Utility meter to get monthly / yearly buckets.
+          # utility_meter helper on top of any of them via the YAML block
+          # in the project README to get daily/weekly/monthly/yearly buckets.
           - type: entities
             entities:
               - entity: sensor.hawahooligan_lifetime_workouts
@@ -150,6 +171,31 @@ views:
               - entity: sensor.hawahooligan_lifetime_calories
               - entity: sensor.hawahooligan_lifetime_work
               - entity: sensor.hawahooligan_lifetime_tss
+            state_color: false
+            grid_options:
+              columns: 12
+              rows: auto
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Recent activity
+            heading_style: title
+            icon: mdi:chart-timeline-variant-shimmer
+          # Trailing-window sensors shipped 0.7.20. The 7d row is "the
+          # last 7 days ending now" (rolling), NOT "this Mon-to-Sun"
+          # (calendar). For calendar buckets see the utility_meter block
+          # in the project README.
+          - type: entities
+            entities:
+              - entity: sensor.hawahooligan_rolling_workouts_7d
+              - entity: sensor.hawahooligan_rolling_distance_7d
+              - entity: sensor.hawahooligan_rolling_duration_7d
+              - entity: sensor.hawahooligan_rolling_tss_7d
+              - entity: sensor.hawahooligan_rolling_workouts_28d
+              - entity: sensor.hawahooligan_rolling_distance_28d
+              - entity: sensor.hawahooligan_rolling_duration_28d
+              - entity: sensor.hawahooligan_rolling_tss_28d
             state_color: false
             grid_options:
               columns: 12
@@ -202,16 +248,24 @@ views:
               columns: 12
               rows: auto
 
+  # ──────────────────────────────────────────────────────────────────
+  # View 3 — Profile. FTP, Critical Power, the seven zone boundaries.
+  # ──────────────────────────────────────────────────────────────────
+  - title: Profile
+    path: profile
+    icon: mdi:account-heart-outline
+    type: sections
+    max_columns: 2
+    sections:
       - type: grid
         cards:
           - type: heading
-            heading: Profile
+            heading: Headline metrics
             heading_style: title
-            icon: mdi:account-heart-outline
-          # Power-zones data refreshes once a day. The 7 zone boundaries
-          # ride along as attributes on sensor.hawahooligan_ftp — query
-          # them with template sensors (state_attr('sensor.hawahooligan_ftp',
-          # 'zone_4')) if you want individual sensors.
+            icon: mdi:flash
+          # Power-zones data refreshes once a day (or on demand via the
+          # ``hawahooligan.refresh_power_zones`` service). The seven zone
+          # boundaries ride along as attributes on sensor.hawahooligan_ftp.
           - type: entities
             entities:
               - entity: sensor.hawahooligan_ftp
@@ -220,3 +274,85 @@ views:
             grid_options:
               columns: 12
               rows: auto
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Power zones (Biking)
+            heading_style: title
+            icon: mdi:chart-bell-curve
+          # Reads the seven zone-boundary attributes off the FTP sensor.
+          # Wahoo returns absolute watts per zone — these are the UPPER
+          # boundary of each zone (so Zone 1 is "everything below zone_1
+          # watts", Zone 7 is "everything above zone_6 watts up to zone_7").
+          # The first/last labels use < and > accordingly.
+          - type: markdown
+            content: >
+              | Zone | Range |
+
+              |---|---|
+
+              | Z1 (Recovery) | < {{ state_attr('sensor.hawahooligan_ftp', 'zone_1') or '—' }} W |
+
+              | Z2 (Endurance) | {{ state_attr('sensor.hawahooligan_ftp', 'zone_1') or '—' }} – {{ state_attr('sensor.hawahooligan_ftp', 'zone_2') or '—' }} W |
+
+              | Z3 (Tempo) | {{ state_attr('sensor.hawahooligan_ftp', 'zone_2') or '—' }} – {{ state_attr('sensor.hawahooligan_ftp', 'zone_3') or '—' }} W |
+
+              | Z4 (Threshold) | {{ state_attr('sensor.hawahooligan_ftp', 'zone_3') or '—' }} – {{ state_attr('sensor.hawahooligan_ftp', 'zone_4') or '—' }} W |
+
+              | Z5 (VO2max) | {{ state_attr('sensor.hawahooligan_ftp', 'zone_4') or '—' }} – {{ state_attr('sensor.hawahooligan_ftp', 'zone_5') or '—' }} W |
+
+              | Z6 (Anaerobic) | {{ state_attr('sensor.hawahooligan_ftp', 'zone_5') or '—' }} – {{ state_attr('sensor.hawahooligan_ftp', 'zone_6') or '—' }} W |
+
+              | Z7 (Neuromuscular) | > {{ state_attr('sensor.hawahooligan_ftp', 'zone_6') or '—' }} W |
+            grid_options:
+              columns: 12
+              rows: auto
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Edit zones
+            heading_style: subtitle
+            icon: mdi:pencil-outline
+          # Editing FTP / zones from within HA is on the roadmap — see
+          # tasks/todo.md Quick Win #5 (``set_power_zones`` service +
+          # ``power_zones_write`` scope migration). Until then:
+          - type: markdown
+            content: >
+              **Editing FTP and zone thresholds from HA is not yet supported.**
+              The integration is currently read-only for power zones; a
+              ``hawahooligan.set_power_zones`` service is on the roadmap.
+
+
+              Today, change your zones via:
+
+
+              - the **Wahoo Companion App** (Profile → Settings → Power Zones).
+              The cloud-API sync is sometimes flaky — manually trigger
+              ``hawahooligan.refresh_power_zones`` from Developer Tools →
+              Services after editing.
+
+              - the **Wahoo Cloud API directly** via Postman. See the
+              `power_zones` folder in
+              [`docs/wahoo-cloud-api.postman_collection.json`](https://github.com/mrebbert/hawahooligan/blob/main/docs/wahoo-cloud-api.postman_collection.json)
+              for ready-made POST / PUT requests. Heads-up: records are
+              app-scoped — Postman MUST use the same client_id as HA's
+              Application Credentials, otherwise the new record stays
+              invisible to HA.
+            grid_options:
+              columns: 12
+              rows: auto
+
+# ──────────────────────────────────────────────────────────────────
+# Future views (NOT shipped — see tasks/todo.md "Publication plan"):
+#
+# - Routes — list every route synced from komoot / Wahoo, filterable.
+#   BLOCKED: Wahoo Cloud API only sees routes uploaded via /v1/routes;
+#   Komoot-sync routes bypass the API. See "Plans → Calendar entity"
+#   LOW VALUE block in tasks/todo.md.
+#
+# - Workouts — paginated browser of every past workout from the
+#   manifest + detail cache. Useful for "find that one ride from
+#   August" type queries.
+# ──────────────────────────────────────────────────────────────────

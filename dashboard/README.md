@@ -1,54 +1,32 @@
 # Example dashboard
 
-Drop-in Lovelace view that pairs the bundled HAWahooligan Leaflet viewer
-with the workout sensors, grouped into seven readable sections.
+Drop-in three-view Lovelace layout that pairs the bundled HAWahooligan
+Leaflet viewer with the workout sensors, lifetime totals, trailing-window
+sensors, and the FTP / power-zones profile — grouped into focused tabs
+so no single page becomes a wall of metrics.
 
 For HACS install + OAuth setup see the [project README](../README.md).
 This page focuses on the dashboard itself.
 
-## What you see
+## Three views
 
-![HAWahooligan dashboard with workout picker, Leaflet map, lifetime totals and outdoor vs indoor breakdown](./dashboard-hawahooligan_wahoo.png)
-
-Live screenshot from a German Home Assistant install — entity IDs are
-locale-independent (pinned to the English slug since 0.7.8), only the
-friendly names follow the user's HA language. Seven sections, top to
-bottom:
-
-- **Map** — workout picker dropdown above a Leaflet iframe that
-  renders the selected ride's GPS track.
-- **Workout** — start time, name, type, indoor flag, route / plan
-  IDs, current selection.
-- **Time & distance** — active / total / paused duration, distance,
-  ascent, average speed, calories.
-- **Power & body** — average power, normalized power, TSS, work,
-  average heart rate, average cadence.
-- **Lifetime** — total workouts, distance, ascent, duration,
-  calories, work, TSS. All carry ``state_class=total_increasing`` so
-  a utility_meter helper gives you weekly / monthly / yearly buckets
-  with zero extra code.
-- **Outdoor vs indoor** — Markdown table reading the ``outdoor`` /
-  ``indoor`` attributes from every lifetime sensor. Workouts
-  persisted before 0.7.2 had no location flag and don't land in
-  either column — they only count in the headline totals above.
-- **Profile** — FTP and critical power. Zone thresholds
-  (``zone_1`` … ``zone_7``) ride along as attributes on
-  ``sensor.hawahooligan_ftp``.
+| View | What's on it | Driven by |
+|---|---|---|
+| **Route** | workout picker, Leaflet map, workout metadata, time & distance, power & body | the active picker selection + the per-workout detail cache |
+| **Lifetime** | lifetime totals, recent-activity trailing windows (7d / 28d), outdoor vs indoor markdown table | the lifetime totals store + the rolling-window sensors (0.7.20+) |
+| **Profile** | FTP, critical power, the seven power-zone boundaries, "edit zones" note | the power-zones coordinator (polls daily; manual refresh via `hawahooligan.refresh_power_zones`) |
 
 ## Wiring it up
 
-1. Make sure the integration is set up and at least one outdoor ride has
-   synced (the picker hides itself until there's a renderable track).
+1. Make sure the integration is set up and at least one workout has
+   synced (the picker hides itself until there's something renderable).
 2. Settings → Dashboards → open the target dashboard → ⋮ → *Edit dashboard*
    → ⋮ → **Raw configuration editor**.
 3. Paste the contents of [`dashboard.yaml`](./dashboard.yaml) (or append the
-   inner `views:` entry to your existing `views:` list).
+   inner `views:` entries to your existing `views:` list).
 
-The example uses two built-in card types:
-- `iframe` for the map
-- `entities` (with `type: attribute` rows for the Tour section)
-
-No HACS frontend cards required.
+The example uses only built-in card types — `iframe`, `entities`,
+`markdown`, `heading`. No HACS frontend cards required.
 
 ## Static files the integration writes
 
@@ -71,7 +49,7 @@ The dropdown is built from `workouts.json`. Picking an entry:
 2. Re-fetches the geojson and re-renders the map immediately — doesn't
    wait for the service to round-trip.
 3. The coordinator picks up the selection and refreshes within ~1–2 s, so
-   the sensor cards on the right also flip to the chosen ride.
+   the sensor cards in the Route view also flip to the chosen ride.
 
 Selection lives in memory only — it resets to "Latest workout" on HA
 restart. To pin permanently, use `?id=<workout_id>` in the iframe URL.
@@ -115,6 +93,15 @@ Want to customize the viewer (theme, markers, status bar)?
 Without the version stamp the integration leaves the file alone on every
 subsequent restart. To get back on the bundled viewer, restore the
 version line.
+
+## Editing FTP / power zones
+
+The Profile view currently includes a placeholder card pointing at the
+Wahoo Companion App and the Postman collection. Editing zones from HA
+itself needs a `hawahooligan.set_power_zones` service that hasn't shipped
+yet — it's on the roadmap (Quick Win #5 in `tasks/todo.md`). Add this
+section to the dashboard as a placeholder for now; it'll start working
+once that service lands.
 
 ## Verifying the wiring
 
