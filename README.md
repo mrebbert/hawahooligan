@@ -400,51 +400,67 @@ actually need:
 ```yaml
 utility_meter:
   hawahooligan_distance_daily:
+    name: HAWahooligan distance (daily)
     source: sensor.hawahooligan_lifetime_distance
     cycle: daily
   hawahooligan_distance_weekly:
+    name: HAWahooligan distance (weekly)
     source: sensor.hawahooligan_lifetime_distance
     cycle: weekly
   hawahooligan_distance_monthly:
+    name: HAWahooligan distance (monthly)
     source: sensor.hawahooligan_lifetime_distance
     cycle: monthly
   hawahooligan_distance_yearly:
+    name: HAWahooligan distance (yearly)
     source: sensor.hawahooligan_lifetime_distance
     cycle: yearly
   hawahooligan_duration_weekly:
+    name: HAWahooligan duration (weekly)
     source: sensor.hawahooligan_lifetime_duration
     cycle: weekly
   hawahooligan_duration_monthly:
+    name: HAWahooligan duration (monthly)
     source: sensor.hawahooligan_lifetime_duration
     cycle: monthly
   hawahooligan_duration_yearly:
+    name: HAWahooligan duration (yearly)
     source: sensor.hawahooligan_lifetime_duration
     cycle: yearly
   hawahooligan_workouts_weekly:
+    name: HAWahooligan workouts (weekly)
     source: sensor.hawahooligan_lifetime_workouts
     cycle: weekly
   hawahooligan_workouts_monthly:
+    name: HAWahooligan workouts (monthly)
     source: sensor.hawahooligan_lifetime_workouts
     cycle: monthly
   hawahooligan_workouts_yearly:
+    name: HAWahooligan workouts (yearly)
     source: sensor.hawahooligan_lifetime_workouts
     cycle: yearly
   hawahooligan_tss_weekly:
+    name: HAWahooligan TSS (weekly)
     source: sensor.hawahooligan_lifetime_tss
     cycle: weekly
   hawahooligan_tss_monthly:
+    name: HAWahooligan TSS (monthly)
     source: sensor.hawahooligan_lifetime_tss
     cycle: monthly
   hawahooligan_calories_weekly:
+    name: HAWahooligan calories (weekly)
     source: sensor.hawahooligan_lifetime_calories
     cycle: weekly
   hawahooligan_calories_monthly:
+    name: HAWahooligan calories (monthly)
     source: sensor.hawahooligan_lifetime_calories
     cycle: monthly
   hawahooligan_ascent_monthly:
+    name: HAWahooligan ascent (monthly)
     source: sensor.hawahooligan_lifetime_ascent
     cycle: monthly
   hawahooligan_work_monthly:
+    name: HAWahooligan work (monthly)
     source: sensor.hawahooligan_lifetime_work
     cycle: monthly
 ```
