@@ -15,7 +15,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import config_entry_oauth2_flow
 
 from .api import WahooApi
-from .const import DOMAIN, PLATFORMS, WWW_SUBPATH
+from .const import DOMAIN, PLATFORMS, SCOPES, WWW_SUBPATH
 from .coordinator import WahooCoordinator, WahooPowerZonesCoordinator
 from .services import async_register_services, async_unregister_services
 
@@ -46,8 +46,38 @@ class HawahooliganData:
 type HawahooliganConfigEntry = ConfigEntry[HawahooliganData]
 
 
+def _require_current_scopes(entry: HawahooliganConfigEntry) -> None:
+    """Raise ``ConfigEntryAuthFailed`` if the stored token lacks any current scope.
+
+    Without this check the reauth banner only triggers when a write
+    endpoint returns 403 — fine for users who immediately call the new
+    service, hostile for everyone else (they upgrade, see no signal,
+    and the new feature silently doesn't work). Comparing the token's
+    granted scopes against ``SCOPES`` at setup catches the gap on the
+    first restart after a scope-adding release.
+
+    If the token doesn't carry a ``scope`` field at all (older OAuth
+    flows that didn't echo it), skip silently and fall back to the
+    403-driven reauth path — better than re-triggering reauth on every
+    healthy restart.
+    """
+    token = entry.data.get("token") or {}
+    granted_raw = token.get("scope")
+    if not granted_raw:
+        return
+    granted = set(granted_raw.split())
+    required = set(SCOPES.split())
+    missing = required - granted
+    if missing:
+        raise ConfigEntryAuthFailed(
+            "Wahoo OAuth token is missing newly-required scopes: "
+            f"{sorted(missing)}. Click reauth to re-authorize."
+        )
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: HawahooliganConfigEntry) -> bool:
     """Set up HAWahooligan from a config entry."""
+    _require_current_scopes(entry)
     implementation = await config_entry_oauth2_flow.async_get_config_entry_implementation(
         hass, entry
     )
