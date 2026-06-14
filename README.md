@@ -40,36 +40,24 @@ on a map — without writing Python, templates, or YAML automations.
 
 ## Features
 
-- **23 native sensors** covering distance, ascent, duration (active /
-  total / paused), average speed, average power, normalized power,
-  TSS, average heart rate, average cadence, calories, work, FTP,
-  critical power, and full lifetime totals (`state_class=total_increasing`,
-  utility_meter-ready).
-- **Indoor / outdoor split** as `outdoor` and `indoor` attributes on
-  every lifetime sensor — break down weekly km or monthly TSS by
-  location without spawning a second set of entities.
-- **Workout picker as a Home Assistant `SelectEntity`.** Pick any
-  workout from a dropdown card and the headline sensors plus the map
-  follow. Indoor and manual rides are picker-eligible too; the map
-  shows a friendly "no GPS" overlay instead of breaking.
-- **Bundled Leaflet map viewer** — `/local/hawahooligan/map.html`,
-  embeddable via a built-in iframe card. No extra HACS frontend cards
-  required.
-- **FIT → GeoJSON renderer** runs locally; tracks land at
-  `<config>/www/hawahooligan/<workout_id>.geojson` and stay accessible
-  even if your Wahoo account is offline.
-- **Auto-render on pick:** picking an outdoor workout whose track
-  isn't on disk yet kicks off a background render. The map fills in
-  seconds — one Wahoo API call per pick, idempotent.
-- **Bulk-render the full history** via the `hawahooligan.full_backfill`
-  service with `with_tracks: true`. Sandbox-safe rate-limit defaults
-  + 3-strike 429 bail-out; resumes from where it left off after a
-  quota reset.
-- **OAuth + token-rotation handled by Home Assistant.** No public DNS
-  or TLS required — local Home Assistant install, plus your own Wahoo
-  developer credentials (the integration deliberately does not ship a
-  shared client secret).
-- **i18n:** English and German translations included.
+- **30+ sensors** covering every ride metric (distance, ascent,
+  durations, power, NP, TSS, HR, cadence, work, calories), plus
+  lifetime totals (utility_meter-ready), trailing 7d/28d windows,
+  workout streak, FTP, and critical power.
+- **Workout picker** as a `SelectEntity` — pick a ride, sensors and
+  map follow. Indoor / manual rides supported (no-GPS overlay
+  instead of an empty map).
+- **Bundled Leaflet map viewer** at `/local/hawahooligan/map.html`,
+  drops into a built-in iframe card. No HACS frontend cards needed.
+- **Auto-render on pick + bulk-render the full history** via the
+  `full_backfill` service. Sandbox rate-limit safe, 3-strike 429
+  bail-out, resumes after quota reset.
+- **PR events on the HA bus** for distance / duration / avg power /
+  TSS — automation-ready.
+- **Write FTP + zones to Wahoo from HA** via `set_power_zones`
+  (0.7.26+). No Postman detour.
+- **OAuth handled by HA.** Local install, no public DNS / TLS.
+  English + German translations.
 
 ## Table of contents
 
@@ -302,40 +290,25 @@ Lovelace iframe card (the example dashboard does this for you).
 
 ### Setting your FTP from HA (0.7.26+)
 
-The `set_power_zones` service lets you write your FTP and zones to
-the Wahoo Cloud API without leaving Home Assistant. Minimal call:
-
 ```yaml
-service: hawahooligan.set_power_zones
+action: hawahooligan.set_power_zones
 data:
   ftp: 250
 ```
 
-That POSTs a new record (or PUTs the existing one) with FTP = 250 W,
-critical power = 250 W, and the seven Wahoo-style derived boundaries
-(zone_1 = 138, zone_2 = 175, …, zone_7 = 1250 — matching the Wahoo
-app's own auto-derivation). Override any zone explicitly when you
-know better:
+The seven zones derive from FTP via Wahoo's own factors (matching
+the app's auto-derivation). Override any zone, set
+`critical_power`, or pass `workout_type_id: 2` for indoor cycling
+when you need to.
 
-```yaml
-service: hawahooligan.set_power_zones
-data:
-  ftp: 250
-  critical_power: 265
-  zone_4: 270        # pin LT to your tested value
-  workout_type_id: 0 # 0 = Biking (default), 2 = Indoor cycling
-```
+For an inline FTP slider on the dashboard, see
+[`dashboard/helpers.yaml`](https://github.com/mrebbert/hawahooligan/blob/main/dashboard/helpers.yaml)
+— one `input_number` + one script that wraps this service.
 
-The FTP / Critical Power sensors refresh immediately — no need to wait
-for the daily poll.
-
-**Why this exists:** Wahoo's `/v1/power_zones` is **app-scoped** —
-records written through a different OAuth client (e.g. via Postman
-with a separate developer app) are invisible to HA. Pre-0.7.26 the
-only options were to set FTP in the Wahoo companion app (whose
-cloud sync is unreliable) or to manually re-authorize Postman with
-HA's `client_id`. The new service writes through HA's own OAuth
-session so the record is always visible to HA.
+> **Why this service exists:** Wahoo's `/v1/power_zones` is
+> **app-scoped** — records written via a different OAuth client
+> (e.g. Postman) are invisible to HA. The service writes through
+> HA's own session so the record is always visible.
 
 ---
 
@@ -371,97 +344,46 @@ and customisation tips (including why the iframe needs
 ## Troubleshooting / FAQ
 
 <details>
-<summary><strong>Sensor cards show "unavailable"</strong></summary>
-
-Two common causes:
-
-1. **Stale dashboard YAML.** Re-paste
-   [`dashboard/dashboard.yaml`](https://github.com/mrebbert/hawahooligan/blob/main/dashboard/dashboard.yaml) from the
-   latest release.
-2. **Non-English HA install carrying entity IDs from before 0.7.8.**
-   Old German installs registered e.g. `sensor.hawahooligan_kritische_leistung`
-   instead of `…_critical_power`. Fresh installs are pinned to the
-   English slug; for existing ones, rename at **Settings → Devices &
-   Services → HAWahooligan → entity → ⚙ → Entity ID**.
-
-</details>
-
-<details>
-<summary><strong>The map is a thin strip at the top of its card</strong></summary>
-
-`sections` views ignore `aspect_ratio` on iframe cards. Set
-`grid_options.rows: 9` explicitly (the shipped YAML already does).
-
-</details>
-
-<details>
-<summary><strong>Old in-iframe dropdown still visible after upgrade</strong></summary>
-
-Your browser cached the old `map.html`. Hard-reload it: open
-`<your HA URL>/local/hawahooligan/map.html` directly and press
-`Cmd+Shift+R` (macOS) / `Ctrl+Shift+F5` (Windows / Linux), then go
-back to the dashboard.
-
-</details>
-
-<details>
-<summary><strong>Picker updates sensors but the map sits on the previous track</strong></summary>
-
-Check the `HAWahooligan-Viewer-Version` line in
-`<config>/www/hawahooligan/map.html`. If it's v3, hard-reload (see
-above). If it's v5+ and the map still lags, call
-`hawahooligan.select_workout` from Developer Tools to force a refresh.
-
-</details>
-
-<details>
-<summary><strong>Map shows last week's ride after an update</strong></summary>
-
-Browser cache on the iframe. Hard-refresh: `Cmd+Shift+R` (macOS),
-`Ctrl+Shift+F5` (Windows / Linux).
-
-</details>
-
-<details>
 <summary><strong>"Reauthentication required" notification after upgrading</strong></summary>
 
-A scope was added in a newer release. Click **Configure** in the
-notification and walk through OAuth — the config entry, entity
-history, and lifetime totals all survive.
+A scope was added in a newer release. Click **Configure** and walk
+through OAuth — config entry, history, and lifetime totals survive.
+
+</details>
+
+<details>
+<summary><strong>Map shows last week's ride, or a thin strip, or an old in-iframe dropdown</strong></summary>
+
+Browser cache on the iframe. Hard-refresh: `Cmd+Shift+R` (macOS),
+`Ctrl+Shift+F5` (Windows / Linux). If it's a thin strip in a
+`sections` view, set `grid_options.rows: 9` (shipped YAML does).
 
 </details>
 
 <details>
 <summary><strong>HTTP 429 — Too Many Requests</strong></summary>
 
-Sandbox limits: **25 / 5 min**, **100 / hour**, **250 / day**. The
-backfill loops bail after 3 consecutive 429s and pick up where they
-left off on the next run; workouts already in totals are skipped.
-
-If the daily 250-call cap is exhausted: wait for the 00:00 UTC
-reset, or upgrade your Wahoo developer app to Production. Picks that
-trigger an auto-render hit the same limit (one detail call); the
-warning `On-demand render for outdoor workout N returned no track`
-is the signal.
+Sandbox limits: 25 / 5 min, 100 / hour, 250 / day. Backfill bails
+after 3 consecutive 429s and resumes on next run. Daily quota
+exhausted → wait for 00:00 UTC reset or upgrade to Production at
+Wahoo.
 
 </details>
 
 <details>
 <summary><strong>Wahoo says "token revoked"</strong></summary>
 
-Wahoo expires unused refresh tokens after 60 days. Click **Configure**
-in the reauth notification and walk through OAuth again.
+Wahoo expires unused refresh tokens after 60 days. Click
+**Configure** and re-authorize.
 
 </details>
 
 <details>
-<summary><strong>Lifetime totals reset to 0 after restart</strong></summary>
+<summary><strong>Sensor cards show "unavailable" — pre-0.7.8 German install</strong></summary>
 
-That bug was real in 0.6.0–0.6.x — `async_load_totals` was wired but
-not called on startup. Fixed in 0.7.0. Update to a current release
-and the persisted store at
-`.storage/hawahooligan_totals_<entry_id>.json` is rehydrated on
-every restart.
+Old German installs registered e.g. `…_kritische_leistung` instead
+of `…_critical_power`. Rename at **Settings → Devices & Services →
+HAWahooligan → entity → ⚙ → Entity ID**.
 
 </details>
 
@@ -486,18 +408,13 @@ buckets for free, no Python, no template sensors.
 The result is `sensor.<your_helper>` with your weekly km / TSS /
 etc., resetting at the cycle boundary.
 
-### Bulk path (one YAML block, all the buckets you actually want)
+### Bulk path (one YAML block, all the buckets)
 
-Paste this into `configuration.yaml` and restart HA. You get sixteen
-ready-made aggregations across the four metrics most dashboards
-actually need:
+Per-sensor in the UI gets tedious fast. Pattern for
+`configuration.yaml`:
 
 ```yaml
 utility_meter:
-  hawahooligan_distance_daily:
-    name: HAWahooligan distance (daily)
-    source: sensor.hawahooligan_lifetime_distance
-    cycle: daily
   hawahooligan_distance_weekly:
     name: HAWahooligan distance (weekly)
     source: sensor.hawahooligan_lifetime_distance
@@ -506,59 +423,13 @@ utility_meter:
     name: HAWahooligan distance (monthly)
     source: sensor.hawahooligan_lifetime_distance
     cycle: monthly
-  hawahooligan_distance_yearly:
-    name: HAWahooligan distance (yearly)
-    source: sensor.hawahooligan_lifetime_distance
-    cycle: yearly
-  hawahooligan_duration_weekly:
-    name: HAWahooligan duration (weekly)
-    source: sensor.hawahooligan_lifetime_duration
-    cycle: weekly
-  hawahooligan_duration_monthly:
-    name: HAWahooligan duration (monthly)
-    source: sensor.hawahooligan_lifetime_duration
-    cycle: monthly
-  hawahooligan_duration_yearly:
-    name: HAWahooligan duration (yearly)
-    source: sensor.hawahooligan_lifetime_duration
-    cycle: yearly
-  hawahooligan_workouts_weekly:
-    name: HAWahooligan workouts (weekly)
-    source: sensor.hawahooligan_lifetime_workouts
-    cycle: weekly
-  hawahooligan_workouts_monthly:
-    name: HAWahooligan workouts (monthly)
-    source: sensor.hawahooligan_lifetime_workouts
-    cycle: monthly
-  hawahooligan_workouts_yearly:
-    name: HAWahooligan workouts (yearly)
-    source: sensor.hawahooligan_lifetime_workouts
-    cycle: yearly
-  hawahooligan_tss_weekly:
-    name: HAWahooligan TSS (weekly)
-    source: sensor.hawahooligan_lifetime_tss
-    cycle: weekly
-  hawahooligan_tss_monthly:
-    name: HAWahooligan TSS (monthly)
-    source: sensor.hawahooligan_lifetime_tss
-    cycle: monthly
-  hawahooligan_calories_weekly:
-    name: HAWahooligan calories (weekly)
-    source: sensor.hawahooligan_lifetime_calories
-    cycle: weekly
-  hawahooligan_calories_monthly:
-    name: HAWahooligan calories (monthly)
-    source: sensor.hawahooligan_lifetime_calories
-    cycle: monthly
-  hawahooligan_ascent_monthly:
-    name: HAWahooligan ascent (monthly)
-    source: sensor.hawahooligan_lifetime_ascent
-    cycle: monthly
-  hawahooligan_work_monthly:
-    name: HAWahooligan work (monthly)
-    source: sensor.hawahooligan_lifetime_work
-    cycle: monthly
+  # …repeat for duration / workouts / tss / calories / ascent / work
 ```
+
+Replace `distance` with each lifetime metric you care about
+(`duration`, `workouts`, `tss`, `calories`, `ascent`, `work`) and
+pick the cycles you actually use (`daily` / `weekly` / `monthly` /
+`yearly`). Restart HA, the helpers show up immediately.
 
 ### Rolling vs calendar buckets — which one to use
 
@@ -579,14 +450,9 @@ Lovelace cards built on top of both flavors.
 
 ### Indoor / outdoor breakdown
 
-Indoor / outdoor sub-sums ride along as `outdoor` and `indoor`
-attributes on both the lifetime and the rolling sensors. The example
-dashboard renders them as a compact Markdown table that picks up
-your locale automatically via `state_attr('sensor.X', 'friendly_name')`
-(German HA → "Distanz insgesamt"). Each cell falls back to a hard-coded
-English label when the entity isn't loaded yet, so the table stays
-render-safe during HA startup instead of throwing
-`UndefinedError: 'None' has no attribute 'name'`.
+`outdoor` and `indoor` ride along as attributes on lifetime and
+rolling sensors. The example dashboard renders them via Markdown;
+labels follow the user's HA locale automatically.
 
 ---
 
@@ -598,38 +464,11 @@ python3.13 -m venv .venv
 .venv/bin/pytest tests -v
 ```
 
-Tier-1 covers the pure-Python modules (`fit.py`, `totals.py`,
-`power_zones.py`, `rate_limit.py`, `manifest.py`) via `importlib`,
-with no Home Assistant dependency. Tier-2 (`tests/integration/`)
-loads a real HA stack via `pytest-homeassistant-custom-component` —
-that's where the dashboard entity-id regression test lives.
-
-The integration follows the standard Home Assistant custom-component
-layout. Notable files:
-
-```text
-custom_components/hawahooligan/
-├── __init__.py             # setup / unload / remove + viewer provisioning
-├── api.py                  # async Wahoo client (with FIT-download fallback)
-├── application_credentials.py
-├── config_flow.py          # OAuth2 + reauth
-├── const.py
-├── coordinator.py          # poll → recent list → selection-aware data
-├── fit.py                  # FIT → GeoJSON (no HA imports — Tier-1 testable)
-├── manifest.json
-├── manifest.py             # picker workouts.json accumulator (Tier-1 testable)
-├── power_zones.py          # /v1/power_zones parser (Tier-1 testable)
-├── rate_limit.py           # rolling-window budget + 429-bail guard (Tier-1)
-├── sensor.py
-├── select.py               # workout-picker SelectEntity
-├── services.py             # render_workout / select_workout / full_backfill / cleanup_geojson
-├── services.yaml
-├── strings.json
-├── totals.py               # lifetime totals + indoor / outdoor split
-├── translations/en.json
-├── translations/de.json
-└── web/map.html            # Leaflet viewer with no-GPS overlay
-```
+Tier-1 covers the pure-Python helpers (`fit.py`, `totals.py`,
+`power_zones.py`, `rate_limit.py`, `manifest.py`, `rolling.py`,
+`streak.py`, `records.py`, `zones.py`) via `importlib`, no HA
+dependency. Tier-2 (`tests/integration/`) loads a real HA stack via
+`pytest-homeassistant-custom-component`.
 
 ---
 

@@ -279,14 +279,7 @@ LIFETIME_SENSORS: tuple[WahooLifetimeSensorDescription, ...] = (
 
 @dataclass(frozen=True, kw_only=True)
 class WahooRollingSensorDescription(SensorEntityDescription):
-    """Describe a trailing-window sensor.
-
-    ``window_days`` is the look-back length; ``value_fn`` picks the
-    headline metric out of :class:`RollingTotals`. ``split_fns`` (when
-    set) is a 2-tuple of ``(outdoor_fn, indoor_fn)`` that drives the
-    ``outdoor`` / ``indoor`` attributes — same shape contract as the
-    lifetime sensors so dashboards can treat both alike.
-    """
+    """Trailing-window sensor. ``split_fns`` powers the outdoor/indoor attributes."""
 
     window_days: int
     value_fn: Callable[[RollingTotals], float | int]
@@ -295,11 +288,8 @@ class WahooRollingSensorDescription(SensorEntityDescription):
     ) = None
 
 
-# Trailing-window rollups. Distinct from the lifetime totals because the
-# state SHRINKS when a workout falls out of the window — that's why these
-# carry ``state_class=measurement``, not ``total_increasing``. The recorder
-# stores per-state-change history but doesn't try to derive consumption
-# deltas (which would be nonsense for "last 7 days distance").
+# state_class=measurement (not total_increasing): rolling values shrink as workouts
+# fall out of the window, which would feed garbage deltas to the recorder otherwise.
 ROLLING_SENSORS: tuple[WahooRollingSensorDescription, ...] = (
     WahooRollingSensorDescription(
         key="rolling_distance_7d",
@@ -589,30 +579,13 @@ class WahooLifetimeSensor(_WahooDescriptionEntity):
 
 
 class WahooRollingSensor(_WahooDescriptionEntity):
-    """Trailing-window rollup over the coordinator's cached history.
-
-    Computes ``RollingTotals`` at every state read from
-    :func:`compute_rolling_totals` against the live ``_detail_cache`` /
-    ``_workouts_index``. The compute is O(n) on the index size (small
-    even for power users — thousands of workouts at most) so the
-    on-demand path stays cheap and we don't have to invalidate a stash
-    on every coordinator poll. Indoor / outdoor sub-sums ride along as
-    attributes via ``split_fns`` — matches the lifetime-sensor shape so
-    Lovelace templates can treat both sensor families identically.
-    """
+    """Trailing-window rollup. Computes on every state read — O(n) on the index size."""
 
     entity_description: WahooRollingSensorDescription
 
     @property
     def available(self) -> bool:
-        """Available whenever the workouts index has at least one entry.
-
-        A cold-start install with no cache hits returns 0 across the
-        board, which is a valid state; reporting "unavailable" instead
-        would make the cards blank on first boot. The window contract is
-        "what we know about, summed" — zero is the honest answer when
-        nothing is known yet.
-        """
+        # Always available — zero is the honest answer for an empty cache.
         return True
 
     def _totals(self) -> RollingTotals:
@@ -638,19 +611,7 @@ class WahooRollingSensor(_WahooDescriptionEntity):
 
 
 class WahooStreakSensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
-    """Consecutive-workout-day streak over the cached manifest index.
-
-    State = current streak length. Attributes carry the historical
-    longest streak, the first day of the current streak, and the
-    most recent workout date — enough to build "x days, started Mon"
-    style cards without piling more entities into the registry.
-
-    Computes via :func:`compute_streak` on every state read. The
-    manifest index is small (<= ~thousands of entries even for power
-    users), so on-demand keeps the wiring simple and avoids a stale
-    cache. Local TZ comes from HA's config so the day boundaries match
-    the user's calendar, not UTC's.
-    """
+    """Streak (current + longest), in days of HA's local TZ."""
 
     _attr_has_entity_name = True
     _attr_translation_key = "streak"
@@ -667,13 +628,6 @@ class WahooStreakSensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
 
     @property
     def available(self) -> bool:
-        """Always available — zero is the honest answer for a fresh install.
-
-        Mirrors the lifetime and rolling sensors: the streak is derived
-        from local cache, so an API failure doesn't make the cached
-        history any less correct. Empty index returns 0, which renders
-        fine in cards.
-        """
         return True
 
     def _result(self):
@@ -682,8 +636,7 @@ class WahooStreakSensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
             tz = ZoneInfo(tz_name)
         except ZoneInfoNotFoundError:
             tz = ZoneInfo("UTC")
-        now_local = datetime.now(tz)
-        return compute_streak(self.coordinator._workouts_index, now_local.date(), tz)
+        return compute_streak(self.coordinator._workouts_index, datetime.now(tz).date(), tz)
 
     @property
     def native_value(self) -> int:

@@ -16,15 +16,8 @@ API_BASE: Final = "https://api.wahooligan.com"
 OAUTH2_AUTHORIZE: Final = f"{API_BASE}/oauth/authorize"
 OAUTH2_TOKEN: Final = f"{API_BASE}/oauth/token"
 
-# Least-privilege scopes for Phase 1-3. `power_zones_read` is added later when
-# Phase 4 (FTP / critical-power sensor) lands. `offline_data` is documented for
-# webhook use but kept here as a safety net for long-lived refresh-token flows.
+# Adding a scope triggers a one-time reauth banner on upgrade for every user.
 SCOPES: Final = "user_read workouts_read power_zones_read power_zones_write offline_data"
-# 0.7.26 added ``power_zones_write`` so the ``set_power_zones`` service
-# can POST/PUT directly from HA instead of forcing users into Postman.
-# Adding a scope triggers a one-time reauth banner on upgrade — every
-# existing user has to re-authorize. Mitigation pattern lives in
-# ``tasks/lessons.md`` ("HACS brand assets" + the 0.7.3 incident).
 
 # Coordinator poll interval. With the conditional single-workout fetch the
 # integration uses ~1 call per poll → ~96/day, which fits comfortably inside
@@ -71,13 +64,9 @@ SERVICE_FULL_BACKFILL: Final = "full_backfill"
 # ``added``, ``done``.
 EVENT_BACKFILL_PROGRESS: Final = "hawahooligan_full_backfill_progress"
 
-# Fires on the polling path when a newly-fetched workout sets a personal
-# record in any of the four tracked metrics (``distance``, ``duration``,
-# ``power_avg``, ``tss``). Indoor and outdoor records are tracked
-# separately. Payload keys: ``kind``, ``value``, ``previous_value``,
-# ``workout_id``, ``indoor``. The backfill paths deliberately skip this
-# so an initial multi-page fetch doesn't flood the bus with hundreds of
-# stale "records" — the baseline is built silently from history.
+# Fires on the polling path when a new workout sets a PR in distance / duration /
+# power_avg / tss. Payload: kind, value, previous_value, workout_id, indoor.
+# Backfill paths stay silent to avoid event flooding on initial multi-page fetches.
 EVENT_PERSONAL_RECORD: Final = "hawahooligan_personal_record"
 
 # Periodic-cleanup service: prune cached GeoJSON tracks older than a

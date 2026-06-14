@@ -319,17 +319,11 @@ async def _handle_set_power_zones(call: ServiceCall) -> None:
     api = entry.runtime_data.api
     coordinator = entry.runtime_data.power_zones_coordinator
 
-    # Wahoo's API rejects float-shaped JSON for power values
-    # (``"Invalid parameter 'zone_1' value 126.0: Must be a number"``).
-    # Everything in the payload below is therefore cast to int at the
-    # API boundary — power zones don't carry sub-watt precision anyway.
+    # Wahoo's API rejects float-shaped JSON for power values; cast to int at the boundary.
     ftp = int(round(float(call.data[_ATTR_FTP])))
     critical_power = int(round(float(call.data.get(_ATTR_CRITICAL_POWER, ftp))))
     workout_type_id = int(call.data.get(_ATTR_WORKOUT_TYPE_ID, 0))
 
-    # Any zones the caller provided override the Wahoo-style defaults;
-    # any they omit get filled from the derived table. Mixing is allowed
-    # (e.g. user pins zone_4 to their exact LT, lets defaults handle the rest).
     derived = default_zones_for(ftp).as_dict()
     zones = {key: int(round(float(call.data.get(key, derived[key])))) for key in _ZONE_KEYS}
 
@@ -341,10 +335,7 @@ async def _handle_set_power_zones(call: ServiceCall) -> None:
         **zones,
     }
 
-    # GET first so we know whether to PUT (record exists for this
-    # workout_type_id) or POST (none yet). Wahoo accepts duplicate
-    # POSTs but treats each as a new record — we want one record per
-    # workout_type_id, not a growing collection.
+    # GET first → PUT if a record exists for this workout_type_id, POST otherwise.
     try:
         existing = await api.async_get_power_zones()
     except Exception as err:  # noqa: BLE001 — surface as HomeAssistantError
@@ -371,8 +362,7 @@ async def _handle_set_power_zones(call: ServiceCall) -> None:
     except Exception as err:  # noqa: BLE001 — surface as HomeAssistantError
         raise HomeAssistantError(f"set_power_zones: write failed ({err})") from err
 
-    # Refresh so the FTP / Critical Power sensors update immediately —
-    # without this, the next change would only show up at the next daily poll.
+    # Refresh so FTP / Critical Power sensors update without waiting for the daily poll.
     await coordinator.async_refresh()
     _LOGGER.info(
         "set_power_zones: %s for workout_type_id=%d (FTP=%g W, zones=%s)",
@@ -384,12 +374,7 @@ async def _handle_set_power_zones(call: ServiceCall) -> None:
 
 
 def _resolve_entry(hass: HomeAssistant, entry_id: str | None) -> HawahooliganConfigEntry:
-    """Locate a loaded HAWahooligan config entry — the shared resolver.
-
-    With a single configured account (the common case) callers can omit
-    ``config_entry_id``; with multiple accounts we require the caller to be
-    explicit so we don't act on the wrong account.
-    """
+    """Loaded config entry; require explicit id when multiple accounts are configured."""
     entries: list[HawahooliganConfigEntry] = [
         entry
         for entry in hass.config_entries.async_entries(DOMAIN)

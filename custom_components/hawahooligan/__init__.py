@@ -47,31 +47,18 @@ type HawahooliganConfigEntry = ConfigEntry[HawahooliganData]
 
 
 def _require_current_scopes(entry: HawahooliganConfigEntry) -> None:
-    """Raise ``ConfigEntryAuthFailed`` if the stored token lacks any current scope.
+    """Trigger reauth at setup when the stored token lacks any scope SCOPES now requires.
 
-    Without this check the reauth banner only triggers when a write
-    endpoint returns 403 — fine for users who immediately call the new
-    service, hostile for everyone else (they upgrade, see no signal,
-    and the new feature silently doesn't work). Comparing the token's
-    granted scopes against ``SCOPES`` at setup catches the gap on the
-    first restart after a scope-adding release.
-
-    If the token doesn't carry a ``scope`` field at all (older OAuth
-    flows that didn't echo it), skip silently and fall back to the
-    403-driven reauth path — better than re-triggering reauth on every
-    healthy restart.
+    Skipped when the token has no ``scope`` field at all — older flows that didn't
+    echo it would otherwise re-trigger reauth on every healthy restart.
     """
-    token = entry.data.get("token") or {}
-    granted_raw = token.get("scope")
+    granted_raw = (entry.data.get("token") or {}).get("scope")
     if not granted_raw:
         return
-    granted = set(granted_raw.split())
-    required = set(SCOPES.split())
-    missing = required - granted
+    missing = set(SCOPES.split()) - set(granted_raw.split())
     if missing:
         raise ConfigEntryAuthFailed(
-            "Wahoo OAuth token is missing newly-required scopes: "
-            f"{sorted(missing)}. Click reauth to re-authorize."
+            f"Wahoo OAuth token missing scopes: {sorted(missing)}. Click reauth."
         )
 
 

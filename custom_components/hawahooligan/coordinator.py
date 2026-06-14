@@ -453,19 +453,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         )
 
     def _emit_personal_records(self, data: WorkoutData) -> None:
-        """Fire an ``EVENT_PERSONAL_RECORD`` event for each new PR.
-
-        Compares ``data`` against the historical max in the detail
-        cache for the matching indoor/outdoor class. Called only from
-        the polling path — backfill (``async_backfill_recent``,
-        ``async_full_backfill``) populates the baseline silently so a
-        cold-start full backfill doesn't dump hundreds of "records"
-        onto the event bus.
-
-        First workout in a class fires events too (per the 2026-06-14
-        design decision: no warmup period). The very first ride sets
-        the baseline and IS the record.
-        """
+        """Fire an EVENT_PERSONAL_RECORD per new PR. Polling-path only — backfill stays silent."""
         records = detect_personal_records(data, self._detail_cache.values())
         for record in records:
             self.hass.bus.async_fire(
