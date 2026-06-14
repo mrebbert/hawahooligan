@@ -232,6 +232,46 @@ views:
       - type: grid
         cards:
           - type: heading
+            heading: Calendar buckets (requires utility_meter helpers)
+            heading_style: subtitle
+            icon: mdi:calendar-month
+          - type: entities
+            entities:
+              - entity: sensor.hawahooligan_distance_weekly
+                name: Distance this week
+              - entity: sensor.hawahooligan_distance_monthly
+                name: Distance this month
+              - entity: sensor.hawahooligan_distance_yearly
+                name: Distance this year
+              - entity: sensor.hawahooligan_duration_weekly
+                name: Saddle time this week
+              - entity: sensor.hawahooligan_workouts_monthly
+                name: Workouts this month
+              - entity: sensor.hawahooligan_tss_weekly
+                name: Training stress this week
+            state_color: false
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: Weekly distance — last 12 weeks (requires utility_meter helpers)
+            heading_style: subtitle
+            icon: mdi:chart-bar
+          - type: statistics-graph
+            period: week
+            days_to_show: 84
+            stat_types:
+              - max
+            entities:
+              - sensor.hawahooligan_distance_weekly
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
             heading: Outdoor vs indoor
             heading_style: subtitle
             icon: mdi:weather-sunny

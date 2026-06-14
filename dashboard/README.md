@@ -17,7 +17,16 @@ HACS frontend cards required.
 2. Paste [`dashboard.yaml`](./dashboard.yaml) (or append the
    `views:` entries to your existing list).
 
-## Helpers (Profile view)
+## Helpers (Lifetime + Profile views)
+
+The Lifetime view's "Calendar buckets" and "Weekly distance — last
+12 weeks" sections need ``utility_meter`` helpers (paste the YAML
+block from the project README's
+[utility_meter bulk path](../README.md#bulk-path-one-yaml-block-all-the-buckets)).
+Without the helpers those rows just say "unavailable" — the rest of
+the dashboard works fine.
+
+
 
 The Edit zones panel uses an `input_number` slider + a script.
 Drop [`helpers.yaml`](./helpers.yaml) into the root of your
