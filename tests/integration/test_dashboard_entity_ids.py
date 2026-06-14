@@ -26,10 +26,15 @@ from ._setup import registered_entity_ids, setup_entity_id_probe
 _DASHBOARD = Path(__file__).resolve().parent.parent.parent / "dashboard" / "dashboard.yaml"
 _ENTITY_ID_RE = re.compile(r"sensor\.hawahooligan_[a-z0-9_]+")
 
+# Suffixes belonging to user-configured ``utility_meter`` helpers (see the
+# README's bulk-path YAML block). The dashboard references them but the
+# integration doesn't register them — out of scope for this regression.
+_UTILITY_METER_CYCLES = ("_daily", "_weekly", "_monthly", "_yearly")
+
 
 def _entity_ids_referenced_by_dashboard() -> set[str]:
     text = _DASHBOARD.read_text(encoding="utf-8")
-    return set(_ENTITY_ID_RE.findall(text))
+    return {eid for eid in _ENTITY_ID_RE.findall(text) if not eid.endswith(_UTILITY_METER_CYCLES)}
 
 
 async def test_dashboard_entity_ids_exist(hass: HomeAssistant) -> None:
