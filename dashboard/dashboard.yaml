@@ -110,6 +110,48 @@ views:
       - type: grid
         cards:
           - type: heading
+            heading: At a glance
+            heading_style: title
+            icon: mdi:chart-line
+          - type: tile
+            entity: sensor.hawahooligan_rolling_distance_7d
+            name: Distance (7d)
+            icon: mdi:map-marker-distance
+            grid_options:
+              columns: 6
+              rows: 1
+          - type: tile
+            entity: sensor.hawahooligan_rolling_duration_7d
+            name: Saddle time (7d)
+            icon: mdi:timer-outline
+            grid_options:
+              columns: 6
+              rows: 1
+          - type: tile
+            entity: sensor.hawahooligan_rolling_workouts_7d
+            name: Workouts (7d)
+            icon: mdi:run-fast
+            grid_options:
+              columns: 6
+              rows: 1
+          - type: tile
+            entity: sensor.hawahooligan_rolling_tss_28d
+            name: Training load (28d)
+            icon: mdi:chart-bell-curve
+            grid_options:
+              columns: 6
+              rows: 1
+          - type: tile
+            entity: sensor.hawahooligan_streak
+            name: Streak
+            icon: mdi:fire
+            color: orange
+            grid_options:
+              columns: 12
+              rows: 1
+      - type: grid
+        cards:
+          - type: heading
             heading: Lifetime totals
             heading_style: title
             icon: mdi:counter
@@ -170,6 +212,20 @@ views:
               - entity: sensor.hawahooligan_rolling_duration_28d
               - entity: sensor.hawahooligan_rolling_tss_28d
             state_color: false
+            grid_options:
+              columns: 12
+              rows: auto
+      - type: grid
+        cards:
+          - type: heading
+            heading: 28-day distance trend
+            heading_style: subtitle
+            icon: mdi:chart-line-variant
+          - type: history-graph
+            hours_to_show: 168
+            entities:
+              - entity: sensor.hawahooligan_rolling_distance_28d
+                name: Distance (28d)
             grid_options:
               columns: 12
               rows: auto
