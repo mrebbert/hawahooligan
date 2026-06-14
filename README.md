@@ -42,7 +42,7 @@ on a map — without writing Python, templates, or YAML automations.
 
 ## Features
 
-- **30+ sensors** covering every ride metric (distance, ascent,
+- **32 sensors** covering every ride metric (distance, ascent,
   durations, power, NP, TSS, HR, cadence, work, calories), plus
   lifetime totals (utility_meter-ready), trailing 7d/28d windows,
   workout streak, FTP, and critical power.
@@ -139,7 +139,7 @@ every refresh.
 
 ## Sensors and attributes
 
-A single device **HAWahooligan** with 23 sensors plus the workout
+A single device **HAWahooligan** with 32 sensors plus the workout
 picker. Entity IDs follow the slugified English friendly name (e.g.
 `sensor.hawahooligan_average_speed`, **not** `..._speed_avg`).
 
