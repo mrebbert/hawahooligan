@@ -96,18 +96,46 @@ version line.
 
 ## Editing FTP / power zones
 
-The Profile view's "Edit zones" panel includes a button card that
-navigates to HA's Developer Tools → Actions page with the
-`hawahooligan.set_power_zones` service pre-selected. Enter your `ftp`
-(required) and any optional `zone_N` overrides, then click "Perform
-action". The seven Coggan-derived boundaries fill in automatically
-from FTP if you don't override them.
+The Profile view's "Edit zones" panel shows a slider for your target
+FTP and a button that pushes the value to Wahoo via the
+`hawahooligan.set_power_zones` service. Stock Lovelace can't collect
+free-form numbers in a card, so this needs two one-time helpers in
+your `configuration.yaml`:
+
+```yaml
+input_number:
+  hawahooligan_target_ftp:
+    name: Target FTP
+    min: 50
+    max: 600
+    step: 1
+    unit_of_measurement: W
+    icon: mdi:flash
+    mode: box
+
+script:
+  hawahooligan_apply_ftp:
+    alias: Apply FTP to Wahoo
+    sequence:
+      - action: hawahooligan.set_power_zones
+        data:
+          ftp: "{{ states('input_number.hawahooligan_target_ftp') | int }}"
+```
+
+Restart HA once. The slider on the dashboard then drives the helper,
+and clicking the button runs the script — which derives the seven
+Coggan zone boundaries from your FTP automatically (55% / 75% / 90% /
+105% / 120% / 150% / 195%). The FTP / Critical Power sensors above
+refresh immediately afterwards.
+
+To override individual zones (e.g. pin Zone 4 to a tested LT value)
+or change `workout_type_id`, extend the script's `data:` block — the
+service accepts `critical_power`, `zone_1` … `zone_7`, and
+`workout_type_id` as optional fields. See the README's "Setting your
+FTP from HA" section for the full schema.
 
 Shipped in 0.7.26 — pre-0.7.26 the only options were Postman or the
 Wahoo Companion App (whose cloud sync proved unreliable in testing).
-The button is a `navigate` action rather than a `perform-action` one
-because the service requires `ftp` and a plain dashboard button has
-no good way to collect that value inline.
 
 ## Verifying the wiring
 
