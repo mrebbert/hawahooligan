@@ -96,12 +96,18 @@ version line.
 
 ## Editing FTP / power zones
 
-The Profile view currently includes a placeholder card pointing at the
-Wahoo Companion App and the Postman collection. Editing zones from HA
-itself needs a `hawahooligan.set_power_zones` service that hasn't shipped
-yet — it's on the roadmap (Quick Win #5 in `tasks/todo.md`). Add this
-section to the dashboard as a placeholder for now; it'll start working
-once that service lands.
+The Profile view's "Edit zones" panel includes a button card that
+navigates to HA's Developer Tools → Actions page with the
+`hawahooligan.set_power_zones` service pre-selected. Enter your `ftp`
+(required) and any optional `zone_N` overrides, then click "Perform
+action". The seven Coggan-derived boundaries fill in automatically
+from FTP if you don't override them.
+
+Shipped in 0.7.26 — pre-0.7.26 the only options were Postman or the
+Wahoo Companion App (whose cloud sync proved unreliable in testing).
+The button is a `navigate` action rather than a `perform-action` one
+because the service requires `ftp` and a plain dashboard button has
+no good way to collect that value inline.
 
 ## Verifying the wiring
 

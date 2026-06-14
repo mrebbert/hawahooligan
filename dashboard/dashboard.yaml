@@ -4,13 +4,18 @@
 #
 #   1. Route    — picker-driven deep-dive into one ride: map, workout
 #                 metadata, time/distance, power/body.
-#   2. Lifetime — accumulated totals + indoor/outdoor split + a quick
-#                 trailing-window block (7d/28d) for "recent activity".
-#   3. Profile  — FTP, critical power, the seven power-zone boundaries.
-#                 Editing from the dashboard is read-only for now —
-#                 placeholder card points at the Companion App / Postman.
-#                 Tracked in tasks/todo.md (Quick Win #5, set_power_zones
-#                 service).
+#   2. Lifetime — accumulated totals, streak, trailing-window block
+#                 (7d/28d), indoor/outdoor split.
+#   3. Profile  — FTP, critical power, the seven power-zone boundaries,
+#                 plus an "Edit zones" panel that opens the
+#                 ``hawahooligan.set_power_zones`` service dialog
+#                 (shipped 0.7.26 — no more Postman detour).
+#
+# Personal-record (PR) detection events fire on the bus when a polled
+# workout sets a new record (distance / duration / avg power / TSS).
+# See docs/dashboard-extras.md for a ready-to-paste PR-notifier
+# automation — events don't have entities and therefore don't belong
+# in this dashboard YAML directly.
 #
 # Entity IDs follow what HA actually registers, which is the slugified
 # English translation NAME — not the translation_key. So
@@ -349,23 +354,27 @@ views:
             heading: Edit zones
             heading_style: subtitle
             icon: mdi:pencil-outline
-          # 0.7.26+ adds ``hawahooligan.set_power_zones`` for in-HA
-          # editing. The button below opens HA's service dialog
-          # pre-filled with the service — user enters their FTP and
-          # optional overrides, hits "Call service". The seven Coggan
-          # boundaries are derived automatically.
+          # ``hawahooligan.set_power_zones`` (shipped 0.7.26) writes FTP
+          # + the seven zone boundaries directly to Wahoo. The button
+          # below navigates to HA's Developer Tools → Actions page,
+          # which can pre-select a service via the ``action`` query
+          # parameter. The user lands on the action editor with the
+          # service ready, fills in ``ftp`` (required) + any
+          # ``zone_N`` overrides, and clicks "Perform action".
+          #
+          # A direct ``perform-action`` tap_action would fail here:
+          # ``ftp`` is required by the service schema, and a dashboard
+          # button has no good way to collect that value inline.
           - type: markdown
             content: >
               **Set FTP & zones from inside Home Assistant** (0.7.26+):
 
 
-              Use the ``hawahooligan.set_power_zones`` service from
-              Developer Tools → Services. Minimum required field is
-              ``ftp`` — the seven zone boundaries are derived via the
-              Coggan defaults (55% / 75% / 90% / 105% / 120% / 150% /
-              195% of FTP). Override any ``zone_N`` to pin your tested
-              values; pass ``workout_type_id: 2`` for indoor cycling
-              instead of the default 0 (Biking).
+              The seven zone boundaries are derived from your FTP via
+              the Coggan defaults (55% / 75% / 90% / 105% / 120% /
+              150% / 195% of FTP). Override any ``zone_N`` to pin your
+              tested values; pass ``workout_type_id: 2`` for indoor
+              cycling instead of the default 0 (Biking).
 
 
               The FTP / Critical Power sensors above refresh
@@ -376,9 +385,13 @@ views:
               rows: auto
           - type: button
             tap_action:
-              action: perform-action
-              perform_action: hawahooligan.set_power_zones
-            name: Open service dialog
+              action: navigate
+              # ``/developer-tools/action`` is HA's modern dev-tools URL
+              # (post-2025 "actions" rename); the ``action=`` query
+              # parameter pre-selects the service so the user only has
+              # to fill in ``ftp`` and click "Perform action".
+              navigation_path: /developer-tools/action?action=hawahooligan.set_power_zones
+            name: Open service editor
             icon: mdi:flash-triangle-outline
             show_state: false
             grid_options:
