@@ -14,13 +14,15 @@
 > in one click.**
 
 > [!WARNING]
-> **Early-stage software — use at your own risk.**
-> HAWahooligan is in active 0.x development. Expect occasional breaking
-> changes between minor versions and the odd rough edge — entity IDs,
-> services, and dashboard YAML may still move around. The integration
-> is **read-only** against the Wahoo Cloud API (no writes, no
-> deletions), so the impact on your Wahoo account is bounded. Pin a
-> known-good release if you depend on stability, and please open an
+> **Single-user project — use at your own risk.**
+> HAWahooligan is in active 0.x development with one real-world user
+> (the author). Expect breaking changes between minor versions and
+> the odd rough edge: entity IDs, services, dashboard YAML, even the
+> default zone factors may still move around in response to live use.
+> The integration now does **one** write call to the Wahoo Cloud API
+> (`hawahooligan.set_power_zones`) — every other endpoint is read-only,
+> so the impact on your Wahoo account stays bounded. Pin a known-good
+> release if you depend on stability, and please open an
 > [issue](https://github.com/mrebbert/hawahooligan/issues) for anything
 > that surprises you.
 
