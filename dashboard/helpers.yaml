@@ -1,0 +1,17 @@
+input_number:
+  hawahooligan_target_ftp:
+    name: Target FTP
+    min: 50
+    max: 600
+    step: 1
+    unit_of_measurement: W
+    icon: mdi:flash
+    mode: box
+
+script:
+  hawahooligan_apply_ftp:
+    alias: Apply FTP to Wahoo
+    sequence:
+      - action: hawahooligan.set_power_zones
+        data:
+          ftp: "{{ states('input_number.hawahooligan_target_ftp') | int }}"

@@ -100,29 +100,11 @@ The Profile view's "Edit zones" panel shows a slider for your target
 FTP and a button that pushes the value to Wahoo via the
 `hawahooligan.set_power_zones` service. Stock Lovelace can't collect
 free-form numbers in a card, so this needs two one-time helpers in
-your `configuration.yaml`:
+your `configuration.yaml`.
 
-```yaml
-input_number:
-  hawahooligan_target_ftp:
-    name: Target FTP
-    min: 50
-    max: 600
-    step: 1
-    unit_of_measurement: W
-    icon: mdi:flash
-    mode: box
-
-script:
-  hawahooligan_apply_ftp:
-    alias: Apply FTP to Wahoo
-    sequence:
-      - action: hawahooligan.set_power_zones
-        data:
-          ftp: "{{ states('input_number.hawahooligan_target_ftp') | int }}"
-```
-
-Restart HA once. The slider on the dashboard then drives the helper,
+Copy the contents of [`helpers.yaml`](./helpers.yaml) — one
+`input_number` slider and one script — to the root of your
+`configuration.yaml`, then restart HA once. The slider on the dashboard then drives the helper,
 and clicking the button runs the script — which derives the seven
 Coggan zone boundaries from your FTP automatically (55% / 75% / 90% /
 105% / 120% / 150% / 195%). The FTP / Critical Power sensors above
