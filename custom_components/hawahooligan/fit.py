@@ -82,14 +82,42 @@ def parse_fit_to_geojson(payload: bytes) -> dict[str, Any] | None:
 
 
 def write_geojson(directory: Path, workout_id: int | str, feature: dict[str, Any]) -> Path:
-    """Write ``feature`` to ``<directory>/<workout_id>.geojson`` and refresh ``latest.geojson``.
-
-    The directory is created if missing. Returns the per-workout file path.
-    The caller is responsible for blocking-io context (executor).
-    """
+    """Write ``feature`` to ``<directory>/<workout_id>.geojson`` and refresh ``latest.geojson``."""
     directory.mkdir(parents=True, exist_ok=True)
     workout_path = directory / f"{workout_id}.geojson"
     payload = json.dumps(feature, separators=(",", ":"))
     workout_path.write_text(payload, encoding="utf-8")
     (directory / "latest.geojson").write_text(payload, encoding="utf-8")
     return workout_path
+
+
+def geojson_path(directory: Path, workout_id: int | str) -> Path:
+    return directory / f"{workout_id}.geojson"
+
+
+def has_geojson(directory: Path, workout_id: int | str) -> bool:
+    """Blocking filesystem check — caller dispatches via executor."""
+    return geojson_path(directory, workout_id).is_file()
+
+
+def cleanup_geojson(directory: Path, cutoff_epoch: float) -> set[int]:
+    """Delete numeric-stem ``<id>.geojson`` files older than ``cutoff_epoch``.
+
+    Returns removed workout ids. ``latest.geojson`` and other non-numeric stems
+    are left alone. Per-file failures (perm / race) skipped — re-runnable.
+    """
+    if not directory.is_dir():
+        return set()
+    removed: set[int] = set()
+    for path in directory.glob("*.geojson"):
+        try:
+            workout_id = int(path.stem)
+        except ValueError:
+            continue
+        try:
+            if path.stat().st_mtime < cutoff_epoch:
+                path.unlink()
+                removed.add(workout_id)
+        except OSError:
+            continue
+    return removed

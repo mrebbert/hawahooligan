@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -35,10 +34,17 @@ from .const import (
     UPDATE_INTERVAL,
     WWW_SUBPATH,
     WWW_URL_PREFIX,
-    is_indoor,
-    workout_type_name,
 )
-from .fit import parse_fit_to_geojson, write_geojson
+from .fit import (
+    cleanup_geojson as _cleanup_geojson,
+)
+from .fit import (
+    has_geojson as _has_geojson,
+)
+from .fit import (
+    parse_fit_to_geojson,
+    write_geojson,
+)
 from .manifest import (
     RecentWorkout,
     merge_and_write_manifest,
@@ -51,258 +57,35 @@ from .rate_limit import ConsecutiveLimitGuard, RateLimitBudget
 from .records import detect_personal_records
 from .totals import SCHEMA_VERSION as _TOTALS_SCHEMA_VERSION
 from .totals import LifetimeTotals, WorkoutContribution
+from .workout_data import (
+    WorkoutData,
+    workout_data_from_storage,
+    workout_data_to_storage,
+)
+from .workout_data import (
+    build_recent_from_listing as _build_recent_from_listing,
+)
+from .workout_data import (
+    build_workout_data as _build_workout_data,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-# Per-workout detail cache persists across restarts so historic picks
-# don't burn an API call after every reboot. Schema bump when
+# Per-workout detail cache persists across restarts. Bump when
 # ``WorkoutData`` gains a required field that can't default sanely.
 _DETAILS_SCHEMA_VERSION = 1
 
-# Debounce writes to the details cache — backfill loops drop 20+
-# entries in a few seconds; without the delay we'd hit disk 20 times
-# back-to-back. 10 s is long enough to coalesce, short enough that an
-# unclean shutdown loses at most one debounce window's worth.
+# Debounce details-cache writes — backfill loops drop many entries in seconds.
 _DETAILS_SAVE_DELAY_SECONDS = 10
-
-# Picker-context fields don't belong in the per-workout cache — they're
-# rebuilt from the manifest + selected_id every poll.
-_DETAILS_TRANSIENT_FIELDS = frozenset({"recent", "selected_workout_id"})
-
-
-@dataclass(slots=True)
-class WorkoutData:
-    """Shape exposed to sensor entities.
-
-    Reflects whichever workout the user is currently viewing (latest by
-    default, or whatever they picked via :meth:`async_select_workout`).
-    Numeric values are pre-cast to ``float`` and converted to the units the
-    sensors advertise (km, km/h, min, …). Anything Wahoo doesn't supply for
-    a given workout type stays as ``None`` so sensors can show ``unknown``.
-    """
-
-    workout_id: int | None = None
-    name: str | None = None
-    starts: str | None = None
-    workout_type_id: int | None = None
-    workout_type_name: str | None = None
-    indoor: bool = False
-    manual: bool = False
-    edited: bool = False
-    time_zone: str | None = None
-    fitness_app_id: int | None = None
-    file_url: str | None = None
-    geojson_url: str | None = None
-    # Workout-level metadata exposed only as attributes on the headline
-    # sensor — useful for automations ("trigger when ride uses Route X")
-    # and for the Phase-5 routes/plans bridge. Wahoo omits these on
-    # workouts with no plan / no route, so all three default to ``None``.
-    route_id: int | None = None
-    plan_id: int | None = None
-    plan_ids: list[int] = field(default_factory=list)
-    # Summary fields (units already applied)
-    distance_km: float | None = None
-    ascent_m: float | None = None
-    duration_min: float | None = None
-    duration_total_min: float | None = None
-    duration_paused_min: float | None = None
-    speed_avg_kmh: float | None = None
-    power_avg_w: float | None = None
-    power_np_w: float | None = None
-    tss: float | None = None
-    heart_rate_avg_bpm: float | None = None
-    cadence_avg_rpm: float | None = None
-    calories_kcal: float | None = None
-    work_kj: float | None = None
-    # Picker context
-    recent: list[RecentWorkout] = field(default_factory=list)
-    selected_workout_id: int | None = None
-
-
-def workout_data_to_storage(data: WorkoutData) -> dict[str, Any]:
-    """Serialize ``WorkoutData`` for the per-workout detail cache.
-
-    Strips transient picker context (``recent``, ``selected_workout_id``)
-    so the cache stays workout-scoped — those fields are rebuilt from
-    the manifest + the coordinator's selected_id on every poll.
-    """
-    out = asdict(data)
-    for key in _DETAILS_TRANSIENT_FIELDS:
-        out.pop(key, None)
-    return out
-
-
-def workout_data_from_storage(payload: dict[str, Any]) -> WorkoutData | None:
-    """Rehydrate ``WorkoutData`` from the cache, tolerating field drift.
-
-    Forward-compat: keys we don't recognize get filtered out so old
-    cache files don't fail to load after a schema bump. Fields that
-    were added since the cache was written use their dataclass
-    defaults.
-    """
-    if not isinstance(payload, dict):
-        return None
-    known = {f.name for f in fields(WorkoutData)}
-    filtered = {k: v for k, v in payload.items() if k in known}
-    if not filtered:
-        return None
-    try:
-        return WorkoutData(**filtered)
-    except (TypeError, ValueError):
-        return None
-
-
-def _as_float(value: Any) -> float | None:
-    """Parse a Wahoo summary string into a float (returns ``None`` on failure).
-
-    Summary values come back as strings ("1234.56"); ``None`` and empty strings
-    are both treated as "absent" because Wahoo omits fields per workout type.
-    """
-    if value in (None, ""):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _build_workout_data(workout: dict[str, Any]) -> WorkoutData:
-    """Map a Wahoo ``GET /v1/workouts/:id`` response onto :class:`WorkoutData`."""
-    summary = workout.get("workout_summary") or {}
-    file_obj = summary.get("file") or {}
-    type_id = workout.get("workout_type_id")
-
-    distance_m = _as_float(summary.get("distance_accum"))
-    duration_s = _as_float(summary.get("duration_active_accum"))
-    duration_total_s = _as_float(summary.get("duration_total_accum"))
-    duration_paused_s = _as_float(summary.get("duration_paused_accum"))
-    speed_ms = _as_float(summary.get("speed_avg"))
-    work_j = _as_float(summary.get("work_accum"))
-
-    plan_ids_raw = workout.get("plan_ids") or []
-    plan_ids: list[int] = []
-    if isinstance(plan_ids_raw, list):
-        for pid in plan_ids_raw:
-            try:
-                plan_ids.append(int(pid))
-            except (TypeError, ValueError):
-                continue
-
-    return WorkoutData(
-        workout_id=workout.get("id"),
-        name=workout.get("name") or summary.get("name"),
-        starts=workout.get("starts"),
-        workout_type_id=type_id,
-        workout_type_name=workout_type_name(type_id),
-        indoor=is_indoor(type_id),
-        manual=bool(workout.get("manual") or summary.get("manual")),
-        edited=bool(workout.get("edited") or summary.get("edited")),
-        time_zone=workout.get("time_zone") or summary.get("time_zone"),
-        fitness_app_id=workout.get("fitness_app_id"),
-        file_url=file_obj.get("url"),
-        route_id=workout.get("route_id"),
-        plan_id=workout.get("plan_id"),
-        plan_ids=plan_ids,
-        distance_km=distance_m / 1000.0 if distance_m is not None else None,
-        ascent_m=_as_float(summary.get("ascent_accum")),
-        duration_min=duration_s / 60.0 if duration_s is not None else None,
-        duration_total_min=(duration_total_s / 60.0 if duration_total_s is not None else None),
-        duration_paused_min=(duration_paused_s / 60.0 if duration_paused_s is not None else None),
-        speed_avg_kmh=speed_ms * 3.6 if speed_ms is not None else None,
-        power_avg_w=_as_float(summary.get("power_avg")),
-        power_np_w=_as_float(summary.get("power_bike_np_last")),
-        tss=_as_float(summary.get("power_bike_tss_last")),
-        heart_rate_avg_bpm=_as_float(summary.get("heart_rate_avg")),
-        cadence_avg_rpm=_as_float(summary.get("cadence_avg")),
-        calories_kcal=_as_float(summary.get("calories_accum")),
-        work_kj=work_j / 1000.0 if work_j is not None else None,
-    )
-
-
-def _build_recent_from_listing(
-    workouts: list[dict[str, Any]],
-    directory: Path,
-) -> list[RecentWorkout]:
-    """Map raw listing entries onto :class:`RecentWorkout`, sorted desc by ``starts``.
-
-    Skips entries without an id (defensive against API shape drift). The
-    ``has_track`` flag is filled from the filesystem — the viewer uses it to
-    distinguish renderable rides from indoor/manual sessions.
-    """
-    result: list[RecentWorkout] = []
-    for workout in workouts:
-        workout_id = workout.get("id")
-        if workout_id is None:
-            continue
-        type_id = workout.get("workout_type_id")
-        summary = workout.get("workout_summary") or {}
-        duration_s = _as_float(summary.get("duration_active_accum"))
-        result.append(
-            RecentWorkout(
-                id=workout_id,
-                name=workout.get("name") or summary.get("name"),
-                starts=workout.get("starts"),
-                workout_type_id=type_id,
-                workout_type_name=workout_type_name(type_id),
-                indoor=is_indoor(type_id),
-                manual=bool(workout.get("manual") or summary.get("manual")),
-                has_track=(directory / f"{workout_id}.geojson").is_file(),
-                duration_min=duration_s / 60.0 if duration_s is not None else None,
-            )
-        )
-    # Listing comes back desc by ``starts`` already, but lean on a Python sort
-    # so a malformed response doesn't reorder the picker silently.
-    result.sort(key=lambda r: r.starts or "", reverse=True)
-    return result
 
 
 def _parse_and_write_fit(directory: Path, workout_id: int | str, payload: bytes) -> str | None:
-    """Blocking helper: decode FIT, write GeoJSON, return public URL or ``None``.
-
-    Lives at module scope so the executor can run it without dragging the
-    coordinator instance along.
-    """
+    """Decode FIT, write GeoJSON, return the public URL. Executor-dispatched."""
     feature = parse_fit_to_geojson(payload)
     if feature is None:
         return None
     write_geojson(directory, workout_id, feature)
     return f"{WWW_URL_PREFIX}/{workout_id}.geojson"
-
-
-def _geojson_path(directory: Path, workout_id: int | str) -> Path:
-    return directory / f"{workout_id}.geojson"
-
-
-def _has_geojson(directory: Path, workout_id: int | str) -> bool:
-    """Blocking filesystem check — caller dispatches via executor."""
-    return _geojson_path(directory, workout_id).is_file()
-
-
-def _cleanup_geojson(directory: Path, cutoff_epoch: float) -> set[int]:
-    """Blocking: delete per-workout ``<id>.geojson`` files older than ``cutoff_epoch``.
-
-    Returns the set of removed workout ids — empty set if the dir is missing
-    or nothing matched. Per-file failures are skipped so one stuck file
-    doesn't block the rest. The companion ``latest.geojson`` (re-written on
-    every poll) is intentionally excluded by the numeric-stem filter.
-    """
-    if not directory.is_dir():
-        return set()
-    removed: set[int] = set()
-    for path in directory.glob("*.geojson"):
-        try:
-            workout_id = int(path.stem)
-        except ValueError:
-            # ``latest.geojson`` or any other non-numeric stem — leave it.
-            continue
-        try:
-            if path.stat().st_mtime < cutoff_epoch:
-                path.unlink()
-                removed.add(workout_id)
-        except OSError:
-            # Permission errors / races with another writer — re-runnable.
-            continue
-    return removed
 
 
 class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
