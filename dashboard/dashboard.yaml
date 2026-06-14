@@ -179,6 +179,40 @@ views:
       - type: grid
         cards:
           - type: heading
+            heading: Streak
+            heading_style: title
+            icon: mdi:fire
+          # Consecutive calendar days (HA's local TZ) with at least one
+          # workout. The "yesterday counts" allowance keeps the sensor
+          # from flipping to 0 between midnight and the next ride.
+          # The attribute row underneath surfaces longest_streak and the
+          # streak start/last-workout dates for "x days, started Mon"
+          # style cards.
+          - type: entities
+            entities:
+              - entity: sensor.hawahooligan_streak
+                name: Current streak
+              - type: attribute
+                entity: sensor.hawahooligan_streak
+                attribute: longest_streak
+                name: Longest streak
+                suffix: " days"
+              - type: attribute
+                entity: sensor.hawahooligan_streak
+                attribute: current_streak_start_date
+                name: Streak started
+              - type: attribute
+                entity: sensor.hawahooligan_streak
+                attribute: last_workout_date
+                name: Last workout
+            state_color: false
+            grid_options:
+              columns: 12
+              rows: auto
+
+      - type: grid
+        cards:
+          - type: heading
             heading: Recent activity
             heading_style: title
             icon: mdi:chart-timeline-variant-shimmer

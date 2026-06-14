@@ -25,6 +25,7 @@ from .const import (
     BACKFILL_COUNT,
     DOMAIN,
     EVENT_BACKFILL_PROGRESS,
+    EVENT_PERSONAL_RECORD,
     FULL_BACKFILL_DEFAULT_BUDGET,
     FULL_BACKFILL_DEFAULT_WINDOW_SECONDS,
     FULL_BACKFILL_MAX_PAGES,
@@ -47,6 +48,7 @@ from .manifest import (
 )
 from .power_zones import PowerZonesData, parse_power_zones
 from .rate_limit import ConsecutiveLimitGuard, RateLimitBudget
+from .records import detect_personal_records
 from .totals import SCHEMA_VERSION as _TOTALS_SCHEMA_VERSION
 from .totals import LifetimeTotals, WorkoutContribution
 
@@ -450,6 +452,33 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             self._build_details_storage_payload, _DETAILS_SAVE_DELAY_SECONDS
         )
 
+    def _emit_personal_records(self, data: WorkoutData) -> None:
+        """Fire an ``EVENT_PERSONAL_RECORD`` event for each new PR.
+
+        Compares ``data`` against the historical max in the detail
+        cache for the matching indoor/outdoor class. Called only from
+        the polling path — backfill (``async_backfill_recent``,
+        ``async_full_backfill``) populates the baseline silently so a
+        cold-start full backfill doesn't dump hundreds of "records"
+        onto the event bus.
+
+        First workout in a class fires events too (per the 2026-06-14
+        design decision: no warmup period). The very first ride sets
+        the baseline and IS the record.
+        """
+        records = detect_personal_records(data, self._detail_cache.values())
+        for record in records:
+            self.hass.bus.async_fire(
+                EVENT_PERSONAL_RECORD,
+                {
+                    "kind": record.kind,
+                    "value": record.value,
+                    "previous_value": record.previous_value,
+                    "workout_id": record.workout_id,
+                    "indoor": record.indoor,
+                },
+            )
+
     def known_workouts(self) -> list[dict[str, Any]]:
         """Return all known workouts sorted by ``starts`` desc (shallow copies)."""
         return sorted(
@@ -640,6 +669,13 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
                 else:
                     data.geojson_url = f"{WWW_URL_PREFIX}/{data.workout_id}.geojson"
 
+            # PR detection runs BEFORE the cache write so the new entry
+            # isn't compared against itself. Backfill paths
+            # (``async_backfill_recent``, ``async_full_backfill``)
+            # deliberately skip the emit step — they populate the
+            # baseline silently to avoid flooding the bus with hundreds
+            # of stale "records" during initial bulk fetches.
+            self._emit_personal_records(data)
             self._detail_cache[target_id] = data
             self._schedule_details_save()
             if target_id == latest_id:

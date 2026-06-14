@@ -66,6 +66,15 @@ SERVICE_FULL_BACKFILL: Final = "full_backfill"
 # ``added``, ``done``.
 EVENT_BACKFILL_PROGRESS: Final = "hawahooligan_full_backfill_progress"
 
+# Fires on the polling path when a newly-fetched workout sets a personal
+# record in any of the four tracked metrics (``distance``, ``duration``,
+# ``power_avg``, ``tss``). Indoor and outdoor records are tracked
+# separately. Payload keys: ``kind``, ``value``, ``previous_value``,
+# ``workout_id``, ``indoor``. The backfill paths deliberately skip this
+# so an initial multi-page fetch doesn't flood the bus with hundreds of
+# stale "records" — the baseline is built silently from history.
+EVENT_PERSONAL_RECORD: Final = "hawahooligan_personal_record"
+
 # Periodic-cleanup service: prune cached GeoJSON tracks older than a
 # user-supplied age. The cache lives under ``<config>/www/hawahooligan/``
 # and grows unbounded with backfills + render_workout calls — this lets a

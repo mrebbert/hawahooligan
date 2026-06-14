@@ -128,24 +128,65 @@ content: |
   | Workouts | {{ state_attr('sensor.hawahooligan_rolling_workouts_7d', 'outdoor') }} | {{ state_attr('sensor.hawahooligan_rolling_workouts_7d', 'indoor') }} |
 ```
 
-## 6. Personal-record awareness (template sensor)
+## 6. Personal-record notifications (event-driven, 0.7.25+)
 
-Until the planned PR-detection event ships natively (Quick Win #3
-in `tasks/todo.md`), you can roll your own "longest ride this month"
-indicator with a template sensor. Add to `configuration.yaml`:
+HAWahooligan fires a `hawahooligan_personal_record` event whenever a
+newly-polled workout sets a record in distance, duration, average
+power or TSS. Indoor and outdoor records are tracked separately —
+your treadmill record doesn't reset your outdoor record.
+
+The simplest notification automation:
 
 ```yaml
-template:
-  - sensor:
-      - name: Wahoo longest ride this month
-        unit_of_measurement: km
-        state: >
-          {% set d = states('sensor.hawahooligan_distance') | float(0) %}
-          {% set m = states('sensor.hawahooligan_distance_monthly') | float(0) %}
-          {{ [d, m] | max | round(1) }}
+alias: Wahoo PR notifier
+trigger:
+  - platform: event
+    event_type: hawahooligan_personal_record
+action:
+  - service: notify.persistent_notification
+    data:
+      title: "New {{ trigger.event.data.kind }} record!"
+      message: >-
+        {% set d = trigger.event.data %}
+        {{ d.value | round(1) }}
+        {%- if d.previous_value is not none %}
+          (previous: {{ d.previous_value | round(1) }})
+        {%- else %}
+          (first workout of its kind)
+        {%- endif %}
+        — {{ 'indoor' if d.indoor else 'outdoor' }}
 ```
 
-Then add a tile card pointed at `sensor.wahoo_longest_ride_this_month`.
+Three things worth knowing:
+
+- **Backfill doesn't fire events.** The full-history backfill service
+  and the boot-time recent-page catch-up populate the baseline
+  silently. Events fire only on the live polling path. So importing
+  1000 historical workouts won't blast your notifications.
+- **First workout in a class IS a PR.** No warmup period. Your
+  first-ever outdoor ride fires events for every populated metric
+  (the integration sees zero prior history of that class).
+  `previous_value` is `null` in that case.
+- **One workout can fire multiple events.** A breakthrough century
+  ride can beat your distance, duration AND TSS records — three
+  events, three notifications.
+
+## 7. Streak tile (0.7.25+)
+
+The streak sensor is a great "habit" anchor for the dashboard. A
+minimal tile card:
+
+```yaml
+type: tile
+entity: sensor.hawahooligan_streak
+name: Workout streak
+icon: mdi:fire
+icon_color: orange
+```
+
+For the "longest ever" attribute as the tile's secondary line, use a
+button-card or the more detailed `entities` block from the example
+dashboard's Lifetime view.
 
 ---
 

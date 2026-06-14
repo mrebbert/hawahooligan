@@ -58,6 +58,7 @@
       "rolling_workouts_28d": { "name": "Workouts (28 Tage)" },
       "rolling_tss_7d": { "name": "TSS (7 Tage)" },
       "rolling_tss_28d": { "name": "TSS (28 Tage)" },
+      "streak": { "name": "Streak" },
       "ftp": { "name": "FTP" },
       "critical_power": { "name": "Kritische Leistung" }
     },

@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -30,6 +31,7 @@ from .const import DOMAIN
 from .coordinator import WahooCoordinator, WahooPowerZonesCoordinator, WorkoutData
 from .power_zones import PowerZonesData
 from .rolling import RollingTotals, compute_rolling_totals
+from .streak import compute_streak
 from .totals import LifetimeTotals
 
 # translation_keys whose desired English-style entity_id slug differs from
@@ -401,6 +403,7 @@ async def async_setup_entry(
         WahooRollingSensor(coordinator, entry.entry_id, description)
         for description in ROLLING_SENSORS
     )
+    entities.append(WahooStreakSensor(coordinator, entry.entry_id))
     entities.append(WahooFtpSensor(power_zones_coordinator, entry.entry_id))
     entities.append(WahooCriticalPowerSensor(power_zones_coordinator, entry.entry_id))
     async_add_entities(entities)
@@ -632,6 +635,69 @@ class WahooRollingSensor(_WahooDescriptionEntity):
         totals = self._totals()
         outdoor_fn, indoor_fn = split
         return {"outdoor": outdoor_fn(totals), "indoor": indoor_fn(totals)}
+
+
+class WahooStreakSensor(CoordinatorEntity[WahooCoordinator], SensorEntity):
+    """Consecutive-workout-day streak over the cached manifest index.
+
+    State = current streak length. Attributes carry the historical
+    longest streak, the first day of the current streak, and the
+    most recent workout date — enough to build "x days, started Mon"
+    style cards without piling more entities into the registry.
+
+    Computes via :func:`compute_streak` on every state read. The
+    manifest index is small (<= ~thousands of entries even for power
+    users), so on-demand keeps the wiring simple and avoids a stale
+    cache. Local TZ comes from HA's config so the day boundaries match
+    the user's calendar, not UTC's.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "streak"
+    _attr_icon = "mdi:fire"
+
+    def __init__(self, coordinator: WahooCoordinator, entry_id: str) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry_id}_streak"
+        self._attr_device_info = _device_info(entry_id)
+
+    @property
+    def suggested_object_id(self) -> str | None:
+        return "streak"
+
+    @property
+    def available(self) -> bool:
+        """Always available — zero is the honest answer for a fresh install.
+
+        Mirrors the lifetime and rolling sensors: the streak is derived
+        from local cache, so an API failure doesn't make the cached
+        history any less correct. Empty index returns 0, which renders
+        fine in cards.
+        """
+        return True
+
+    def _result(self):
+        tz_name = self.hass.config.time_zone or "UTC"
+        try:
+            tz = ZoneInfo(tz_name)
+        except ZoneInfoNotFoundError:
+            tz = ZoneInfo("UTC")
+        now_local = datetime.now(tz)
+        return compute_streak(self.coordinator._workouts_index, now_local.date(), tz)
+
+    @property
+    def native_value(self) -> int:
+        return self._result().current
+
+    @property
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:
+        result = self._result()
+        attrs: dict[str, Any] = {"longest_streak": result.longest}
+        if result.current_start is not None:
+            attrs["current_streak_start_date"] = result.current_start.isoformat()
+        if result.last_workout_date is not None:
+            attrs["last_workout_date"] = result.last_workout_date.isoformat()
+        return attrs
 
 
 class WahooFtpSensor(CoordinatorEntity[WahooPowerZonesCoordinator], SensorEntity):

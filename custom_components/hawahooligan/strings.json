@@ -58,6 +58,7 @@
       "rolling_workouts_28d": { "name": "Workouts (28d)" },
       "rolling_tss_7d": { "name": "TSS (7d)" },
       "rolling_tss_28d": { "name": "TSS (28d)" },
+      "streak": { "name": "Streak" },
       "ftp": { "name": "FTP" },
       "critical_power": { "name": "Critical power" }
     }

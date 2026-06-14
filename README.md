@@ -191,6 +191,63 @@ picker. Entity IDs follow the slugified English friendly name (e.g.
 | `_ftp` | W | `zone_1` … `zone_7`, `zone_count`, `workout_type_id`, `workout_type_family_id`, `updated_at` |
 | `_critical_power` | W | – |
 
+### Trailing-window sensors (0.7.20+, `state_class=measurement`)
+
+| Sensor | Unit | Attributes |
+|---|---|---|
+| `_rolling_distance_7d` / `_28d` | km | `outdoor`, `indoor` |
+| `_rolling_duration_7d` / `_28d` | min | `outdoor`, `indoor` |
+| `_rolling_workouts_7d` / `_28d` | count | `outdoor`, `indoor` |
+| `_rolling_tss_7d` / `_28d` | – | – |
+
+Rolling = "the last N days ending NOW", NOT "this calendar week".
+For calendar buckets see [Advanced: lifetime totals + utility_meter](#advanced-lifetime-totals--utility_meter).
+
+### Streak (0.7.25+, `state_class=measurement`)
+
+| Sensor | Unit | Attributes |
+|---|---|---|
+| `_streak` | days | `longest_streak`, `current_streak_start_date`, `last_workout_date` |
+
+Consecutive calendar days (in HA's local timezone) with at least one
+workout. The current streak is valid if it ends **today or yesterday**
+— users opening the dashboard at 6am the morning after a 30-day streak
+still see 30, not 0. Older trailing runs report 0.
+
+### Personal-record events (0.7.25+)
+
+When the polling path detects a new workout that sets a record in any
+of distance / duration / avg power / TSS — indoor and outdoor tracked
+separately — HAWahooligan fires a `hawahooligan_personal_record` event
+on the HA bus. Payload:
+
+```yaml
+event_type: hawahooligan_personal_record
+event_data:
+  kind: distance        # one of: distance, duration, power_avg, tss
+  value: 120.5          # the new high
+  previous_value: 95.0  # the old max (null on the first-ever workout)
+  workout_id: 1234567
+  indoor: false
+```
+
+Wire it into an automation trigger to notify on every PR:
+
+```yaml
+trigger:
+  - platform: event
+    event_type: hawahooligan_personal_record
+action:
+  - service: notify.persistent_notification
+    data:
+      title: "New {{ trigger.event.data.kind }} record!"
+      message: "{{ trigger.event.data.value | round(1) }} (previous: {{ trigger.event.data.previous_value | round(1) }})"
+```
+
+Backfill paths (the full-history backfill service, the recent-page
+catch-up at boot) deliberately stay silent — they populate the baseline
+without flooding the bus with stale records.
+
 ### Workout picker
 
 `select.hawahooligan_workout_picker` — every workout the integration

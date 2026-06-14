@@ -148,6 +148,9 @@ async def test_per_workout_sensors_follow_coordinator_data_not_update_success(
             # they're untouched by the workout coordinator's poll state.
             "sensor.hawahooligan_ftp",
             "sensor.hawahooligan_critical_power",
+            # Streak reads the manifest index directly — local cache,
+            # same always-available contract as lifetime / rolling.
+            "sensor.hawahooligan_streak",
         }
     ]
     assert api_bound_sensors, "no API-bound per-workout sensors found — wiring broke?"
