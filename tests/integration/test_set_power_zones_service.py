@@ -84,9 +84,9 @@ async def test_post_when_no_existing_record(hass: HomeAssistant, mock_api: Magic
     assert payload["ftp"] == 250
     assert payload["workout_type_id"] == 0
     assert payload["zone_count"] == 7
-    # Coggan defaults landed.
-    assert payload["zone_1"] == 138
-    assert payload["zone_7"] == 488
+    # Wahoo-style defaults landed (FTP=250 → factors 0.55/0.70/0.91/0.96/1.03/1.20/5.00).
+    assert payload["zone_1"] == 138  # 0.55 * 250
+    assert payload["zone_7"] == 1250  # 5.00 * 250 sentinel
 
 
 async def test_put_when_existing_record_matches_workout_type(
@@ -118,10 +118,10 @@ async def test_put_when_existing_record_matches_workout_type(
     assert payload["ftp"] == 260
 
 
-async def test_explicit_zones_override_coggan_defaults(
+async def test_explicit_zones_override_wahoo_defaults(
     hass: HomeAssistant, mock_api: MagicMock
 ) -> None:
-    """User can pin any subset of zones; the rest fall back to Coggan."""
+    """User can pin any subset of zones; the rest fall back to Wahoo-style defaults."""
     await _setup_entry(hass, mock_api)
 
     await hass.services.async_call(
@@ -138,9 +138,9 @@ async def test_explicit_zones_override_coggan_defaults(
     # Explicit overrides took effect.
     assert payload["zone_4"] == 270
     assert payload["zone_5"] == 320
-    # Other zones still come from Coggan derivation.
-    assert payload["zone_1"] == 138
-    assert payload["zone_7"] == 488
+    # Other zones still come from Wahoo-style derivation.
+    assert payload["zone_1"] == 138  # 0.55 * 250
+    assert payload["zone_7"] == 1250  # 5.00 * 250 sentinel
 
 
 async def test_critical_power_defaults_to_ftp(hass: HomeAssistant, mock_api: MagicMock) -> None:

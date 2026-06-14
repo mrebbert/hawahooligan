@@ -151,17 +151,17 @@
     },
     "set_power_zones": {
       "name": "Set FTP / power zones",
-      "description": "Write your FTP, critical power, and the seven zone boundaries to the Wahoo Cloud API. Auto-derives zone_1..zone_7 from FTP via Coggan defaults; pass any zone_N explicitly to override. POSTs on first call, PUTs on subsequent calls. The FTP / Critical Power sensors refresh immediately.",
+      "description": "Write your FTP, critical power, and the seven zone boundaries to the Wahoo Cloud API. Auto-derives zone_1..zone_7 from FTP using Wahoo-style defaults (matching the Wahoo app's auto-derivation); pass any zone_N explicitly to override. POSTs on first call, PUTs on subsequent calls. The FTP / Critical Power sensors refresh immediately.",
       "fields": {
         "ftp": { "name": "FTP", "description": "Functional Threshold Power in watts." },
         "critical_power": { "name": "Critical Power", "description": "Defaults to FTP if omitted." },
         "zone_1": { "name": "Zone 1 upper boundary", "description": "Defaults to 55% of FTP." },
-        "zone_2": { "name": "Zone 2 upper boundary", "description": "Defaults to 75% of FTP." },
-        "zone_3": { "name": "Zone 3 upper boundary", "description": "Defaults to 90% of FTP." },
-        "zone_4": { "name": "Zone 4 upper boundary", "description": "Defaults to 105% of FTP." },
-        "zone_5": { "name": "Zone 5 upper boundary", "description": "Defaults to 120% of FTP." },
-        "zone_6": { "name": "Zone 6 upper boundary", "description": "Defaults to 150% of FTP." },
-        "zone_7": { "name": "Zone 7 upper boundary", "description": "Defaults to 195% of FTP." },
+        "zone_2": { "name": "Zone 2 upper boundary", "description": "Defaults to 70% of FTP." },
+        "zone_3": { "name": "Zone 3 upper boundary", "description": "Defaults to 91% of FTP." },
+        "zone_4": { "name": "Zone 4 upper boundary", "description": "Defaults to 96% of FTP (sub-threshold)." },
+        "zone_5": { "name": "Zone 5 upper boundary", "description": "Defaults to 103% of FTP (narrow threshold band)." },
+        "zone_6": { "name": "Zone 6 upper boundary", "description": "Defaults to 120% of FTP (anaerobic)." },
+        "zone_7": { "name": "Zone 7 upper boundary", "description": "Defaults to 500% of FTP (sprint sentinel)." },
         "workout_type_id": { "name": "Workout type", "description": "0 = Biking (default), 2 = Indoor Cycling, etc." },
         "config_entry_id": { "name": "Config entry", "description": "Only required when more than one Wahoo account is configured." }
       }

@@ -104,11 +104,13 @@ your `configuration.yaml`.
 
 Copy the contents of [`helpers.yaml`](./helpers.yaml) — one
 `input_number` slider and one script — to the root of your
-`configuration.yaml`, then restart HA once. The slider on the dashboard then drives the helper,
-and clicking the button runs the script — which derives the seven
-Coggan zone boundaries from your FTP automatically (55% / 75% / 90% /
-105% / 120% / 150% / 195%). The FTP / Critical Power sensors above
-refresh immediately afterwards.
+`configuration.yaml`, then restart HA once. The slider on the dashboard
+then drives the helper, and clicking the button runs the script — which
+derives the seven zone boundaries from your FTP automatically using
+Wahoo-style defaults (55% / 70% / 91% / 96% / 103% / 120% / 500%
+sentinel), matching what the Wahoo app produces from the same FTP
+value. The FTP / Critical Power sensors above refresh immediately
+afterwards.
 
 To override individual zones (e.g. pin Zone 4 to a tested LT value)
 or change `workout_type_id`, extend the script's `data:` block — the

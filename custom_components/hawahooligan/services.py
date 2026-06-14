@@ -27,7 +27,7 @@ from .const import (
     SERVICE_SELECT_WORKOUT,
     SERVICE_SET_POWER_ZONES,
 )
-from .zones import coggan_zones_for
+from .zones import default_zones_for
 
 if TYPE_CHECKING:
     from . import HawahooliganConfigEntry
@@ -327,10 +327,10 @@ async def _handle_set_power_zones(call: ServiceCall) -> None:
     critical_power = int(round(float(call.data.get(_ATTR_CRITICAL_POWER, ftp))))
     workout_type_id = int(call.data.get(_ATTR_WORKOUT_TYPE_ID, 0))
 
-    # Any zones the caller provided override the Coggan defaults; any
-    # they omit get filled from the derived table. Mixing is allowed
-    # (e.g. user pins zone_4 to their exact LT, lets Coggan handle the rest).
-    derived = coggan_zones_for(ftp).as_dict()
+    # Any zones the caller provided override the Wahoo-style defaults;
+    # any they omit get filled from the derived table. Mixing is allowed
+    # (e.g. user pins zone_4 to their exact LT, lets defaults handle the rest).
+    derived = default_zones_for(ftp).as_dict()
     zones = {key: int(round(float(call.data.get(key, derived[key])))) for key in _ZONE_KEYS}
 
     payload: dict[str, object] = {
