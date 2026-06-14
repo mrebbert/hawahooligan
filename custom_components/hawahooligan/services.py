@@ -319,15 +319,19 @@ async def _handle_set_power_zones(call: ServiceCall) -> None:
     api = entry.runtime_data.api
     coordinator = entry.runtime_data.power_zones_coordinator
 
-    ftp = float(call.data[_ATTR_FTP])
-    critical_power = float(call.data.get(_ATTR_CRITICAL_POWER, ftp))
+    # Wahoo's API rejects float-shaped JSON for power values
+    # (``"Invalid parameter 'zone_1' value 126.0: Must be a number"``).
+    # Everything in the payload below is therefore cast to int at the
+    # API boundary — power zones don't carry sub-watt precision anyway.
+    ftp = int(round(float(call.data[_ATTR_FTP])))
+    critical_power = int(round(float(call.data.get(_ATTR_CRITICAL_POWER, ftp))))
     workout_type_id = int(call.data.get(_ATTR_WORKOUT_TYPE_ID, 0))
 
     # Any zones the caller provided override the Coggan defaults; any
     # they omit get filled from the derived table. Mixing is allowed
     # (e.g. user pins zone_4 to their exact LT, lets Coggan handle the rest).
     derived = coggan_zones_for(ftp).as_dict()
-    zones = {key: float(call.data.get(key, derived[key])) for key in _ZONE_KEYS}
+    zones = {key: int(round(float(call.data.get(key, derived[key])))) for key in _ZONE_KEYS}
 
     payload: dict[str, object] = {
         "ftp": ftp,

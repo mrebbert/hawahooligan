@@ -151,6 +151,33 @@ async def test_critical_power_defaults_to_ftp(hass: HomeAssistant, mock_api: Mag
     assert payload["critical_power"] == 250
 
 
+async def test_payload_uses_int_typed_watts_not_float(
+    hass: HomeAssistant, mock_api: MagicMock
+) -> None:
+    """Wahoo's API rejects float-shaped JSON for power values.
+
+    Pinned after a v0.7.27 user hit ``HTTP 422: Invalid parameter
+    'zone_1' value 126.0: Must be a number``. The service must coerce
+    every power value to ``int`` before handing it to ``api.async_*``
+    so ``json.dumps`` emits ``126`` instead of ``126.0``.
+    """
+    await _setup_entry(hass, mock_api)
+    await hass.services.async_call(
+        DOMAIN,
+        "set_power_zones",
+        {"ftp": 250, "critical_power": 260},
+        blocking=True,
+    )
+    payload = mock_api.async_create_power_zones.call_args.args[0]
+    # Strictly int, not float — ``isinstance(True, int)`` is True so the
+    # check also guards against ``bool`` slipping through, but no path
+    # in the service exposes a bool here.
+    for key in ("ftp", "critical_power", *(f"zone_{i}" for i in range(1, 8))):
+        assert isinstance(payload[key], int) and not isinstance(payload[key], bool), (
+            f"{key} must be int, got {type(payload[key]).__name__} ({payload[key]!r})"
+        )
+
+
 async def test_workout_type_id_routes_to_matching_record(
     hass: HomeAssistant, mock_api: MagicMock
 ) -> None:
