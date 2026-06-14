@@ -101,41 +101,25 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         )
         self._api = api
         self._entry_id = entry.entry_id
-        # ``None`` means "follow latest"; an int pins to a specific workout id.
+        # None = follow latest; int pins to a specific workout id.
         self._selected_workout_id: int | None = None
-        # Track the workout we last fully fetched so we can skip the extra
-        # detail call when nothing changed since the previous poll.
         self._last_target_id: int | None = None
         self._last_latest_summary_was_null: bool = True
-        # WorkoutData by workout_id — historic picks are reused from here so
-        # toggling between rides doesn't burn a Wahoo API call each time.
         self._detail_cache: dict[int, WorkoutData] = {}
-        # Lifetime totals are persisted per-entry so they survive HA restarts
-        # without re-counting workouts. The store is keyed off the entry id
-        # to keep multi-account installs isolated.
         self._totals: LifetimeTotals = LifetimeTotals()
         self._totals_store: Store = Store(
             hass,
             _TOTALS_SCHEMA_VERSION,
             f"{DOMAIN}_totals_{entry.entry_id}",
         )
-        # Per-workout detail cache persisted across restarts so historic
-        # picks don't burn an API call after every reboot. Written via
-        # ``async_delay_save`` so backfill loops don't hit disk per-entry.
+        # async_delay_save batches backfill-rate writes; see _schedule_details_save.
         self._details_store: Store = Store(
             hass,
             _DETAILS_SCHEMA_VERSION,
             f"{DOMAIN}_details_{entry.entry_id}",
         )
-        # Serializes manifest read-modify-write across the regular poll,
-        # backfill (recent + full), and cleanup paths so concurrent writers
-        # don't drop each other's entries on the floor.
+        # Serializes manifest read-modify-write across poll / backfill / cleanup.
         self._manifest_lock = asyncio.Lock()
-        # In-memory mirror of ``workouts.json``. Populated by
-        # ``async_load_workouts_index`` at setup and kept in sync by
-        # ``_refresh_manifest`` / ``async_cleanup_geojson``. The workout
-        # picker ``SelectEntity`` reads from it so the dropdown stays
-        # snappy without disk I/O on every state read.
         self._workouts_index: dict[int, dict[str, Any]] = {}
 
     @property
@@ -153,14 +137,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         return self._totals
 
     async def async_load_workouts_index(self) -> None:
-        """Populate the in-memory workouts index from the persisted manifest.
-
-        Lets the workout-picker ``SelectEntity`` come up with the full
-        dropdown right after restart, without waiting for the first
-        regular-poll listing to round-trip. Also restores the user's
-        last selection (manifest ``selected_id``) so the headline
-        sensors come up pinned to the right workout.
-        """
+        """Populate the workouts index + restore the picker selection from disk."""
         try:
             self._workouts_index = await self.hass.async_add_executor_job(
                 read_manifest_entries, self._geojson_dir
@@ -179,13 +156,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             self._selected_workout_id = selected
 
     async def async_load_details_cache(self) -> None:
-        """Rehydrate the per-workout detail cache from disk.
-
-        Setup-phase work — called after ``async_load_workouts_index``
-        so a cache-only cold start (rate-limited API, no successful
-        poll) can still hand the per-workout sensors a populated
-        ``coordinator.data`` for the pinned selection.
-        """
+        """Rehydrate the per-workout detail cache from disk; load failure must not block setup."""
         try:
             payload = await self._details_store.async_load()
         except Exception as err:  # noqa: BLE001 — load failure must not block setup
@@ -506,17 +477,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
             return None
 
     async def _refresh_manifest(self, recent: list[RecentWorkout], selected_id: int | None) -> None:
-        """Merge ``recent`` into the manifest + in-memory index; never raises.
-
-        Held under :attr:`_manifest_lock` so a parallel ``async_full_backfill``
-        / cleanup / regular poll can't drop each other's entries via a
-        read-modify-write race. The lock is async-only; the disk I/O still
-        runs in the executor.
-
-        On success, ``async_update_listeners`` pushes the new index to the
-        workout-picker ``SelectEntity`` so the dropdown's options refresh
-        without waiting for the next poll cycle.
-        """
+        """Merge ``recent`` into the manifest + in-memory index; held under ``_manifest_lock``."""
         async with self._manifest_lock:
             try:
                 merged = await self.hass.async_add_executor_job(
@@ -531,15 +492,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
     async def async_render_workout(
         self, workout_id: int | str, *, force: bool = False
     ) -> str | None:
-        """Render the GeoJSON for an arbitrary Wahoo workout id.
-
-        Used both by the backfill loop (no-op when the file is already on
-        disk) and the ``render_workout`` service (``force=True`` so users can
-        re-render after a viewer/track bump).
-
-        Returns the public ``/local/...`` URL when a track was produced,
-        ``None`` when there's nothing to render (indoor, manual, no GPS).
-        """
+        """Render the GeoJSON for ``workout_id``; returns the public URL or None."""
         if not force:
             exists = await self.hass.async_add_executor_job(
                 _has_geojson, self._geojson_dir, workout_id
@@ -798,20 +751,7 @@ class WahooCoordinator(DataUpdateCoordinator[WorkoutData | None]):
         return added_total
 
     async def async_cleanup_geojson(self, max_age_days: int) -> int:
-        """Prune ``<id>.geojson`` files older than ``max_age_days`` + sync the manifest.
-
-        The cache (``<config>/www/hawahooligan/``) grows with every backfill
-        and ``render_workout`` call. The matching picker-manifest entries
-        get dropped in lockstep so the viewer dropdown doesn't list rides
-        whose tracks have just vanished. Indoor / manual entries (which
-        never produce a track) are untouched — they don't have a file to
-        time-check.
-
-        ``max_age_days`` must be >= 1 — the service-layer schema rejects
-        anything below.
-
-        Returns the number of removed files.
-        """
+        """Prune ``<id>.geojson`` older than ``max_age_days`` and sync the picker manifest."""
         cutoff_epoch = time.time() - max_age_days * 86400
         removed_ids: set[int] = await self.hass.async_add_executor_job(
             _cleanup_geojson, self._geojson_dir, cutoff_epoch

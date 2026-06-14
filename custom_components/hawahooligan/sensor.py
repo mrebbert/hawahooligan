@@ -441,16 +441,8 @@ class _WahooDescriptionEntity(CoordinatorEntity[WahooCoordinator], SensorEntity)
 
     @property
     def available(self) -> bool:
-        """Available whenever the coordinator has ANY data (fresh or cached).
-
-        ``CoordinatorEntity.available`` ties itself to
-        ``last_update_success``, which would flip every per-workout sensor
-        to "unavailable" the moment the API rate-limits. Since 0.7.17 the
-        coordinator persists per-workout details across restarts and
-        seeds ``self.data`` from that cache at setup, so a populated
-        ``coordinator.data`` is the right "we have something to show"
-        signal — independent of whether the most recent poll succeeded.
-        """
+        # Override CoordinatorEntity.available (which keys on last_update_success):
+        # a populated data attribute means we have a cached workout to show.
         return self.coordinator.data is not None
 
 

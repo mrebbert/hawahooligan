@@ -76,16 +76,7 @@ class WahooApi:
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
     ) -> Any:
-        """Perform an authenticated request and decode the JSON body.
-
-        Maps HTTP 401 / invalid_grant to ``ConfigEntryAuthFailed`` so the
-        coordinator can trigger the reauth flow without losing the entry.
-        Handles HTTP 429 by sleeping for the ``Retry-After`` window and
-        retrying the call once — the budget the backfill layers on top
-        keeps healthy callers from ever hitting this branch, but it's a
-        useful defensive net when several callers race or the user's
-        Wahoo app is on the Sandbox tier.
-        """
+        """Authenticated request → decoded JSON. 401 → ConfigEntryAuthFailed; 429 retries once."""
         url = f"{API_BASE}{path}"
         kwargs: dict[str, Any] = {}
         if params is not None:
@@ -140,13 +131,7 @@ class WahooApi:
     async def async_get_workouts(
         self, per_page: int = 1, page: int | None = None
     ) -> dict[str, Any]:
-        """Return ``GET /v1/workouts?per_page=N&page=M`` (sorted by ``starts`` desc).
-
-        ``workout_summary`` is frequently ``null`` in the listing — call
-        :meth:`async_get_workout` to fetch the full object with the summary.
-        Pass ``page`` to paginate beyond the first ``per_page`` workouts
-        (full-history backfill); without it Wahoo returns page 1.
-        """
+        """``GET /v1/workouts`` (sorted ``starts`` desc). ``workout_summary`` is often null here."""
         params: dict[str, Any] = {"per_page": per_page}
         if page is not None:
             params["page"] = page
@@ -157,14 +142,7 @@ class WahooApi:
         return await self._request("GET", f"/v1/workouts/{workout_id}")
 
     async def async_get_power_zones(self) -> list[dict[str, Any]]:
-        """Return ``GET /v1/power_zones``.
-
-        Requires the ``power_zones_read`` scope. The base :meth:`_request`
-        helper already maps 401 to ``ConfigEntryAuthFailed`` for the
-        refresh-token case; here we additionally translate the 403 that
-        Wahoo returns when the token genuinely lacks the scope so HA's
-        framework triggers the reauth flow.
-        """
+        """``GET /v1/power_zones``. 403 → ConfigEntryAuthFailed so HA shows the reauth banner."""
         try:
             return await self._request("GET", "/v1/power_zones")
         except WahooApiError as err:
@@ -177,14 +155,7 @@ class WahooApi:
             raise
 
     async def async_create_power_zones(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Create a power-zone record via ``POST /v1/power_zones``.
-
-        ``payload`` is wrapped in the ``{"power_zone": …}`` envelope
-        Wahoo expects (handled here so callers stay flat). Requires
-        the ``power_zones_write`` scope — added to the integration's
-        SCOPES list in 0.7.26, which means existing users see a
-        one-time reauth banner on upgrade.
-        """
+        """``POST /v1/power_zones`` — wraps ``payload`` in the ``{"power_zone": …}`` envelope."""
         try:
             return await self._request("POST", "/v1/power_zones", json={"power_zone": payload})
         except WahooApiError as err:
@@ -199,13 +170,7 @@ class WahooApi:
     async def async_update_power_zones(
         self, record_id: int | str, payload: dict[str, Any]
     ) -> dict[str, Any]:
-        """Update a power-zone record via ``PUT /v1/power_zones/:id``.
-
-        Wahoo's PUT accepts a partial payload (e.g. just ``{"ftp": 260}``)
-        but ``set_power_zones`` always sends the full set so the seven
-        zone boundaries stay coherent with the FTP value. Same scope
-        + 403-translation contract as :meth:`async_create_power_zones`.
-        """
+        """``PUT /v1/power_zones/:id`` — same envelope + 403 contract as create."""
         try:
             return await self._request(
                 "PUT", f"/v1/power_zones/{record_id}", json={"power_zone": payload}
@@ -220,23 +185,11 @@ class WahooApi:
             raise
 
     async def async_delete_permissions(self) -> None:
-        """``DELETE /v1/permissions`` — deauthorize the token server-side.
-
-        Called from ``async_remove_entry`` so removing the integration also
-        frees one of the user's 10 Wahoo token slots. Best-effort: callers
-        should swallow errors so removal never blocks.
-        """
+        """``DELETE /v1/permissions`` — frees a Wahoo token slot. Callers swallow errors."""
         await self._request("DELETE", "/v1/permissions")
 
     async def async_download_fit(self, url: str) -> bytes | None:
-        """Download a FIT file from a ``workout_summary.file.url``.
-
-        Tries the URL anonymously first (CDN-signed; doesn't consume the API
-        rate limit). Falls back to Bearer auth on 401, which is the documented
-        recovery path for rotated/expired signed URLs. Returns ``None`` on any
-        non-auth failure so the caller can skip FIT processing for this poll
-        and try again on the next one.
-        """
+        """Download a FIT file. Anonymous first (CDN-signed), Bearer-auth fallback on 401."""
         client = async_get_clientsession(self._hass)
         try:
             async with client.get(url) as response:
