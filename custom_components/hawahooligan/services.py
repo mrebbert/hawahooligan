@@ -25,7 +25,9 @@ from .const import (
     SERVICE_REFRESH_POWER_ZONES,
     SERVICE_RENDER_WORKOUT,
     SERVICE_SELECT_WORKOUT,
+    SERVICE_SET_POWER_ZONES,
 )
+from .zones import coggan_zones_for
 
 if TYPE_CHECKING:
     from . import HawahooliganConfigEntry
@@ -40,6 +42,10 @@ _ATTR_MAX_PAGES = "max_pages"
 _ATTR_MAX_CALLS_PER_WINDOW = "max_calls_per_window"
 _ATTR_WINDOW_SECONDS = "window_seconds"
 _ATTR_MAX_AGE_DAYS = "max_age_days"
+_ATTR_FTP = "ftp"
+_ATTR_CRITICAL_POWER = "critical_power"
+_ATTR_WORKOUT_TYPE_ID = "workout_type_id"
+_ZONE_KEYS: tuple[str, ...] = tuple(f"zone_{i}" for i in range(1, 8))
 
 _RENDER_SCHEMA = vol.Schema(
     {
@@ -88,6 +94,26 @@ _CLEANUP_SCHEMA = vol.Schema(
 
 _REFRESH_POWER_ZONES_SCHEMA = vol.Schema(
     {
+        vol.Optional(_ATTR_CONFIG_ENTRY_ID): str,
+    }
+)
+
+
+_SET_POWER_ZONES_SCHEMA = vol.Schema(
+    {
+        vol.Required(_ATTR_FTP): vol.All(vol.Coerce(float), vol.Range(min=1.0, max=1000.0)),
+        vol.Optional(_ATTR_CRITICAL_POWER): vol.All(
+            vol.Coerce(float), vol.Range(min=1.0, max=1000.0)
+        ),
+        vol.Optional(_ATTR_WORKOUT_TYPE_ID, default=0): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=255)
+        ),
+        # Optional explicit zone boundaries; any absent fields are
+        # derived from FTP via the Coggan defaults at service-call time.
+        **{
+            vol.Optional(zone): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=2000.0))
+            for zone in _ZONE_KEYS
+        },
         vol.Optional(_ATTR_CONFIG_ENTRY_ID): str,
     }
 )
@@ -148,6 +174,13 @@ def async_register_services(hass: HomeAssistant) -> None:
             _handle_refresh_power_zones,
             schema=_REFRESH_POWER_ZONES_SCHEMA,
         )
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_POWER_ZONES):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SET_POWER_ZONES,
+            _handle_set_power_zones,
+            schema=_SET_POWER_ZONES_SCHEMA,
+        )
 
 
 @callback
@@ -159,6 +192,7 @@ def async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_FULL_BACKFILL,
         SERVICE_CLEANUP_GEOJSON,
         SERVICE_REFRESH_POWER_ZONES,
+        SERVICE_SET_POWER_ZONES,
     ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)
@@ -277,6 +311,71 @@ async def _handle_refresh_power_zones(call: ServiceCall) -> None:
     _LOGGER.info(
         "refresh_power_zones: kicked off background refresh for entry %s",
         entry.entry_id,
+    )
+
+
+async def _handle_set_power_zones(call: ServiceCall) -> None:
+    entry = _resolve_entry(call.hass, call.data.get(_ATTR_CONFIG_ENTRY_ID))
+    api = entry.runtime_data.api
+    coordinator = entry.runtime_data.power_zones_coordinator
+
+    ftp = float(call.data[_ATTR_FTP])
+    critical_power = float(call.data.get(_ATTR_CRITICAL_POWER, ftp))
+    workout_type_id = int(call.data.get(_ATTR_WORKOUT_TYPE_ID, 0))
+
+    # Any zones the caller provided override the Coggan defaults; any
+    # they omit get filled from the derived table. Mixing is allowed
+    # (e.g. user pins zone_4 to their exact LT, lets Coggan handle the rest).
+    derived = coggan_zones_for(ftp).as_dict()
+    zones = {key: float(call.data.get(key, derived[key])) for key in _ZONE_KEYS}
+
+    payload: dict[str, object] = {
+        "ftp": ftp,
+        "critical_power": critical_power,
+        "zone_count": 7,
+        "workout_type_id": workout_type_id,
+        **zones,
+    }
+
+    # GET first so we know whether to PUT (record exists for this
+    # workout_type_id) or POST (none yet). Wahoo accepts duplicate
+    # POSTs but treats each as a new record — we want one record per
+    # workout_type_id, not a growing collection.
+    try:
+        existing = await api.async_get_power_zones()
+    except Exception as err:  # noqa: BLE001 — surface as HomeAssistantError
+        raise HomeAssistantError(f"set_power_zones: GET existing records failed: {err}") from err
+
+    matching_id: int | None = None
+    if isinstance(existing, list):
+        for record in existing:
+            if not isinstance(record, dict):
+                continue
+            if record.get("workout_type_id") == workout_type_id:
+                rid = record.get("id")
+                if isinstance(rid, int):
+                    matching_id = rid
+                    break
+
+    try:
+        if matching_id is None:
+            await api.async_create_power_zones(payload)
+            action = "POST"
+        else:
+            await api.async_update_power_zones(matching_id, payload)
+            action = f"PUT id={matching_id}"
+    except Exception as err:  # noqa: BLE001 — surface as HomeAssistantError
+        raise HomeAssistantError(f"set_power_zones: write failed ({err})") from err
+
+    # Refresh so the FTP / Critical Power sensors update immediately —
+    # without this, the next change would only show up at the next daily poll.
+    await coordinator.async_refresh()
+    _LOGGER.info(
+        "set_power_zones: %s for workout_type_id=%d (FTP=%g W, zones=%s)",
+        action,
+        workout_type_id,
+        ftp,
+        [int(zones[k]) for k in _ZONE_KEYS],
     )
 
 

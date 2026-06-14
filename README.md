@@ -298,6 +298,43 @@ Lovelace iframe card (the example dashboard does this for you).
 | `hawahooligan.full_backfill` | Paginate through your entire Wahoo history and feed the lifetime totals. Rate-limit aware: Sandbox-safe default of 8 calls / 5 min (≈ 96 / hour), bails after 3 consecutive 429s. Pass `with_tracks: true` to also render every historic outdoor track. Fires `hawahooligan_full_backfill_progress` events per page so you can wire a notification. |
 | `hawahooligan.cleanup_geojson` | Prune cached GeoJSON tracks in `<config>/www/hawahooligan/` older than `max_age_days` (default 180). Wire to a nightly automation to cap unbounded growth. |
 | `hawahooligan.refresh_power_zones` | Force an immediate refresh of the FTP / Critical Power / zone-threshold sensors instead of waiting for the regular 24-hour cycle. Useful after updating FTP in the Wahoo app or after a Reauth that just granted the `power_zones_read` scope. Fire-and-forget — runs in the background. |
+| `hawahooligan.set_power_zones` | Set or update your FTP, critical power, and the seven zone boundaries directly from HA (0.7.26+). Auto-derives `zone_1`..`zone_7` from FTP via Coggan defaults; pass any `zone_N` to override. POSTs on first call, PUTs on subsequent calls. Triggers an immediate sensor refresh. Requires the `power_zones_write` scope (added in 0.7.26 — existing users see a one-time reauth banner on upgrade). |
+
+### Setting your FTP from HA (0.7.26+)
+
+The `set_power_zones` service lets you write your FTP and zones to
+the Wahoo Cloud API without leaving Home Assistant. Minimal call:
+
+```yaml
+service: hawahooligan.set_power_zones
+data:
+  ftp: 250
+```
+
+That POSTs a new record (or PUTs the existing one) with FTP = 250 W,
+critical power = 250 W, and the seven Coggan-derived boundaries
+(zone_1 = 138, zone_2 = 188, …, zone_7 = 488). Override any zone
+explicitly when you know better:
+
+```yaml
+service: hawahooligan.set_power_zones
+data:
+  ftp: 250
+  critical_power: 265
+  zone_4: 270        # pin LT to your tested value
+  workout_type_id: 0 # 0 = Biking (default), 2 = Indoor cycling
+```
+
+The FTP / Critical Power sensors refresh immediately — no need to wait
+for the daily poll.
+
+**Why this exists:** Wahoo's `/v1/power_zones` is **app-scoped** —
+records written through a different OAuth client (e.g. via Postman
+with a separate developer app) are invisible to HA. Pre-0.7.26 the
+only options were to set FTP in the Wahoo companion app (whose
+cloud sync is unreliable) or to manually re-authorize Postman with
+HA's `client_id`. The new service writes through HA's own OAuth
+session so the record is always visible to HA.
 
 ---
 

@@ -19,7 +19,12 @@ OAUTH2_TOKEN: Final = f"{API_BASE}/oauth/token"
 # Least-privilege scopes for Phase 1-3. `power_zones_read` is added later when
 # Phase 4 (FTP / critical-power sensor) lands. `offline_data` is documented for
 # webhook use but kept here as a safety net for long-lived refresh-token flows.
-SCOPES: Final = "user_read workouts_read power_zones_read offline_data"
+SCOPES: Final = "user_read workouts_read power_zones_read power_zones_write offline_data"
+# 0.7.26 added ``power_zones_write`` so the ``set_power_zones`` service
+# can POST/PUT directly from HA instead of forcing users into Postman.
+# Adding a scope triggers a one-time reauth banner on upgrade — every
+# existing user has to re-authorize. Mitigation pattern lives in
+# ``tasks/lessons.md`` ("HACS brand assets" + the 0.7.3 incident).
 
 # Coordinator poll interval. With the conditional single-workout fetch the
 # integration uses ~1 call per poll → ~96/day, which fits comfortably inside
@@ -86,6 +91,12 @@ SERVICE_CLEANUP_GEOJSON: Final = "cleanup_geojson"
 # after updating FTP in the Wahoo app, or after a Reauth that gave the
 # integration the ``power_zones_read`` scope for the first time.
 SERVICE_REFRESH_POWER_ZONES: Final = "refresh_power_zones"
+
+# Write-side service for the FTP / zone boundaries — bridges the
+# read-only gap that pre-0.7.26 forced users into Postman for. POSTs
+# a new record or PUTs an existing one, then refreshes the power-zones
+# coordinator so the FTP sensor updates immediately.
+SERVICE_SET_POWER_ZONES: Final = "set_power_zones"
 # Default age threshold (days) when the caller omits ``max_age_days``.
 # 180 covers two seasons of riding so historic comparison still works
 # without paying for stale long-tail tracks.

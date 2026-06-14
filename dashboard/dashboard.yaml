@@ -349,34 +349,41 @@ views:
             heading: Edit zones
             heading_style: subtitle
             icon: mdi:pencil-outline
-          # Editing FTP / zones from within HA is on the roadmap — see
-          # tasks/todo.md Quick Win #5 (``set_power_zones`` service +
-          # ``power_zones_write`` scope migration). Until then:
+          # 0.7.26+ adds ``hawahooligan.set_power_zones`` for in-HA
+          # editing. The button below opens HA's service dialog
+          # pre-filled with the service — user enters their FTP and
+          # optional overrides, hits "Call service". The seven Coggan
+          # boundaries are derived automatically.
           - type: markdown
             content: >
-              **Editing FTP and zone thresholds from HA is not yet supported.**
-              The integration is currently read-only for power zones; a
-              ``hawahooligan.set_power_zones`` service is on the roadmap.
+              **Set FTP & zones from inside Home Assistant** (0.7.26+):
 
 
-              Today, change your zones via:
+              Use the ``hawahooligan.set_power_zones`` service from
+              Developer Tools → Services. Minimum required field is
+              ``ftp`` — the seven zone boundaries are derived via the
+              Coggan defaults (55% / 75% / 90% / 105% / 120% / 150% /
+              195% of FTP). Override any ``zone_N`` to pin your tested
+              values; pass ``workout_type_id: 2`` for indoor cycling
+              instead of the default 0 (Biking).
 
 
-              - the **Wahoo Companion App** (Profile → Settings → Power Zones).
-              The cloud-API sync is sometimes flaky — manually trigger
-              ``hawahooligan.refresh_power_zones`` from Developer Tools →
-              Services after editing.
-
-              - the **Wahoo Cloud API directly** via Postman. See the
-              `power_zones` folder in
-              [`docs/wahoo-cloud-api.postman_collection.json`](https://github.com/mrebbert/hawahooligan/blob/main/docs/wahoo-cloud-api.postman_collection.json)
-              for ready-made POST / PUT requests. Heads-up: records are
-              app-scoped — Postman MUST use the same client_id as HA's
-              Application Credentials, otherwise the new record stays
-              invisible to HA.
+              The FTP / Critical Power sensors above refresh
+              immediately after the call — no need to wait for the
+              daily poll.
             grid_options:
               columns: 12
               rows: auto
+          - type: button
+            tap_action:
+              action: perform-action
+              perform_action: hawahooligan.set_power_zones
+            name: Open service dialog
+            icon: mdi:flash-triangle-outline
+            show_state: false
+            grid_options:
+              columns: 12
+              rows: 1
 
 # ──────────────────────────────────────────────────────────────────
 # Future views (NOT shipped — see tasks/todo.md "Publication plan"):

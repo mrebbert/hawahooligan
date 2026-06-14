@@ -74,6 +74,7 @@ class WahooApi:
         path: str,
         *,
         params: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
     ) -> Any:
         """Perform an authenticated request and decode the JSON body.
 
@@ -86,9 +87,14 @@ class WahooApi:
         Wahoo app is on the Sandbox tier.
         """
         url = f"{API_BASE}{path}"
+        kwargs: dict[str, Any] = {}
+        if params is not None:
+            kwargs["params"] = params
+        if json is not None:
+            kwargs["json"] = json
         for attempt in range(2):
             try:
-                response = await self._session.async_request(method, url, params=params)
+                response = await self._session.async_request(method, url, **kwargs)
             except ClientResponseError as err:
                 if err.status in (400, 401):
                     raise ConfigEntryAuthFailed(
@@ -167,6 +173,49 @@ class WahooApi:
                 raise ConfigEntryAuthFailed(
                     "Wahoo /v1/power_zones returned 403 — reauth needed for the "
                     "power_zones_read scope"
+                ) from err
+            raise
+
+    async def async_create_power_zones(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Create a power-zone record via ``POST /v1/power_zones``.
+
+        ``payload`` is wrapped in the ``{"power_zone": …}`` envelope
+        Wahoo expects (handled here so callers stay flat). Requires
+        the ``power_zones_write`` scope — added to the integration's
+        SCOPES list in 0.7.26, which means existing users see a
+        one-time reauth banner on upgrade.
+        """
+        try:
+            return await self._request("POST", "/v1/power_zones", json={"power_zone": payload})
+        except WahooApiError as err:
+            text = str(err)
+            if "HTTP 403" in text:
+                raise ConfigEntryAuthFailed(
+                    "Wahoo POST /v1/power_zones returned 403 — reauth needed for the "
+                    "power_zones_write scope"
+                ) from err
+            raise
+
+    async def async_update_power_zones(
+        self, record_id: int | str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Update a power-zone record via ``PUT /v1/power_zones/:id``.
+
+        Wahoo's PUT accepts a partial payload (e.g. just ``{"ftp": 260}``)
+        but ``set_power_zones`` always sends the full set so the seven
+        zone boundaries stay coherent with the FTP value. Same scope
+        + 403-translation contract as :meth:`async_create_power_zones`.
+        """
+        try:
+            return await self._request(
+                "PUT", f"/v1/power_zones/{record_id}", json={"power_zone": payload}
+            )
+        except WahooApiError as err:
+            text = str(err)
+            if "HTTP 403" in text:
+                raise ConfigEntryAuthFailed(
+                    "Wahoo PUT /v1/power_zones returned 403 — reauth needed for the "
+                    "power_zones_write scope"
                 ) from err
             raise
 
