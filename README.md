@@ -143,6 +143,14 @@ A single device **HAWahooligan** with 32 sensors plus the workout
 picker. Entity IDs follow the slugified English friendly name (e.g.
 `sensor.hawahooligan_average_speed`, **not** `..._speed_avg`).
 
+> **Units:** values ship metric (km, m, km/h, W, kJ, kcal, min).
+> Home Assistant auto-converts the distance- / speed-classed
+> sensors to miles / feet / mph for imperial locales via
+> `device_class`. The example dashboard's indoor-vs-outdoor
+> Markdown table reads raw attribute values and hardcodes `km` /
+> `m` / `min` labels — if you want it in miles, swap those labels
+> and convert in the template.
+
 ### Per-workout (drives the headline / picker)
 
 | Sensor (entity_id suffix) | Unit | Source |
