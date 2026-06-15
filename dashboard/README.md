@@ -7,8 +7,22 @@ HACS frontend cards required.
 | View | Content |
 |---|---|
 | **Route** | Picker, Leaflet map, workout metadata, time & distance, power & body |
-| **Lifetime** | Lifetime totals, streak, 7d/28d trailing windows, outdoor vs indoor table |
-| **Profile** | FTP, critical power, the seven zone boundaries, "Edit zones" panel |
+| **Lifetime** | At-a-glance tiles, lifetime totals, streak, 7d/28d trailing windows, 28-day trend graph, calendar buckets, statistics-graph, outdoor vs indoor table |
+| **Profile** | FTP, critical power, the seven zone boundaries, "Edit zones" panel with FTP slider |
+
+## Preview
+
+**Route** — picker drives map + per-workout sensors:
+
+![Route view](./1_workout.png)
+
+**Lifetime** — totals, streak, rolling windows, calendar buckets, trend:
+
+![Lifetime view](./2_summary.png)
+
+**Profile** — FTP, critical power, the seven zone boundaries, in-HA edit:
+
+![Profile view](./3_profile.png)
 
 ## Install
 
@@ -19,23 +33,22 @@ HACS frontend cards required.
 
 ## Helpers (Lifetime + Profile views)
 
-The Lifetime view's "Calendar buckets" and "Weekly distance — last
-12 weeks" sections need ``utility_meter`` helpers (paste the YAML
-block from the project README's
-[utility_meter bulk path](../README.md#bulk-path-one-yaml-block-all-the-buckets)).
-Without the helpers those rows just say "unavailable" — the rest of
-the dashboard works fine.
+**`utility_meter` helpers** drive the Lifetime view's "Calendar
+buckets" and "Weekly distance — last 12 weeks" sections. Paste the
+YAML block from the project README's
+[utility_meter bulk path](../README.md#bulk-path-one-yaml-block-all-the-buckets-you-actually-want)
+into `configuration.yaml`. Without them those rows show
+"unavailable" — the rest of the dashboard works fine.
 
+**`input_number` + script helpers** drive the Profile view's
+"Edit zones" FTP slider + Apply button. Drop the contents of
+[`helpers.yaml`](./helpers.yaml) into the root of your
+`configuration.yaml` and restart HA once. The slider feeds a
+script that calls `hawahooligan.set_power_zones`; Wahoo-style zone
+boundaries derive automatically from the FTP value.
 
-
-The Edit zones panel uses an `input_number` slider + a script.
-Drop [`helpers.yaml`](./helpers.yaml) into the root of your
-`configuration.yaml`, restart HA once. The slider drives a script
-that calls `hawahooligan.set_power_zones` — Coggan-style zone
-boundaries derive automatically.
-
-For per-zone overrides or `workout_type_id`, extend the script's
-`data:` block.
+For per-zone overrides or a different `workout_type_id`, extend
+the script's `data:` block.
 
 ## Customizing
 
