@@ -62,6 +62,13 @@ the script's `data:` block.
   `HAWahooligan-Viewer-Version: N` header line to prevent the
   integration overwriting your edits on the next restart.
 
+## Beyond the dashboard
+
+[`automations-and-tips.md`](./automations-and-tips.md) covers stuff
+that doesn't belong in the Lovelace YAML: the PR-notifier
+automation for `hawahooligan_personal_record` events, plus a short
+troubleshooting list for common card hiccups.
+
 ## Sanity check
 
 After the first poll, `<config>/www/hawahooligan/` contains

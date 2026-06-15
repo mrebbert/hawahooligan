@@ -76,7 +76,7 @@ def _get_sensor(hass: HomeAssistant, entity_id: str):
 async def test_all_eight_rolling_sensors_register_with_stable_ids(
     hass: HomeAssistant,
 ) -> None:
-    """Pin the entity_id slugs — Lovelace YAML in docs/dashboard-extras.md depends on them."""
+    """Pin the entity_id slugs — Lovelace YAML in dashboard/dashboard.yaml depends on them."""
     await _setup_with_cache(hass, detail_cache={}, workouts_index={})
 
     registered = {

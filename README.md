@@ -447,8 +447,7 @@ what the `rolling_*` sensors (shipped 0.7.20+) cover directly:
 | "Monthly training load this calendar month?" | `utility_meter` monthly bucket on lifetime TSS |
 | "28-day rolling training load (CTL-like)?" | `sensor.hawahooligan_rolling_tss_28d` |
 
-See [docs/dashboard-extras.md](docs/dashboard-extras.md) for ready-made
-Lovelace cards built on top of both flavors.
+See [dashboard/automations-and-tips.md](dashboard/automations-and-tips.md) for the PR-notifier automation and troubleshooting tips.
 
 ### Indoor / outdoor breakdown
 
