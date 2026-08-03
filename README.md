@@ -26,6 +26,39 @@
 > [issue](https://github.com/mrebbert/hawahooligan/issues) for anything
 > that surprises you.
 
+---
+
+## Table of contents
+
+**Overview**
+- [What is HAWahooligan?](#what-is-hawahooligan)
+- [Features](#features)
+- [Requirements & compatibility](#requirements--compatibility)
+
+**Setup**
+- [Quick start](#quick-start)
+  - [1 — Install via HACS](#1--install-via-hacs)
+  - [2 — Create a Wahoo developer app](#2--create-a-wahoo-developer-app)
+  - [3 — Add the integration to Home Assistant](#3--add-the-integration-to-home-assistant)
+
+**Reference**
+- [Sensors and attributes](#sensors-and-attributes)
+- [Services](#services)
+- [Events](#events)
+- [Map viewer](#map-viewer)
+
+**Guides**
+- [Dashboard example](#dashboard-example)
+- [Set your FTP and power zones from HA](#set-your-ftp-and-power-zones-from-ha)
+- [Lifetime totals with utility_meter](#lifetime-totals-with-utility_meter)
+
+**Help**
+- [FAQ & troubleshooting](#faq--troubleshooting)
+- [Development](#development)
+- [License](#license)
+
+---
+
 ## What is HAWahooligan?
 
 **HAWahooligan is a [Home Assistant](https://www.home-assistant.io/)
@@ -61,23 +94,24 @@ on a map — without writing Python, templates, or YAML automations.
 - **OAuth handled by HA.** Local install, no public DNS / TLS.
   English + German translations.
 
-## Table of contents
+## Requirements & compatibility
 
-- [Quick start](#quick-start)
-- [Sensors and attributes](#sensors-and-attributes)
-- [Map viewer](#map-viewer)
-- [Services](#services)
-- [Dashboard example](#dashboard-example)
-- [Troubleshooting / FAQ](#troubleshooting--faq)
-- [Advanced: lifetime totals + utility_meter](#advanced-lifetime-totals--utility_meter)
-- [Development](#development)
-- [License](#license)
+| You need | Details |
+|---|---|
+| **Home Assistant** | Any recent HA install (HACS-capable). Local network only — no public DNS or TLS. |
+| **A Wahoo device** | Any device that syncs to Wahoo Cloud — **ELEMNT** BOLT / ROAM / RIVAL, etc. Indoor and manual rides work too. |
+| **A Wahoo developer app** | Your own OAuth `client_id` / `client_secret` from the [Wahoo Cloud API portal](https://cloud-api.wahooligan.com/) (free — see [step 2](#2--create-a-wahoo-developer-app)). |
+| **HACS** | Installed as a [custom repository](#1--install-via-hacs). |
+| **Languages** | UI translations for English and German. |
 
 ---
 
 ## Quick start
 
-### Step 1 — Install via HACS
+Three steps: install the integration, register a Wahoo app for OAuth
+credentials, then add it to Home Assistant.
+
+### 1 — Install via HACS
 
 The fastest path: click the badge below. It opens HACS on your Home
 Assistant instance with this repository pre-filled. Then click
@@ -94,7 +128,7 @@ The manual path:
 > The bundled Leaflet viewer means **no extra HACS frontend cards** are
 > required — the map drops straight into a built-in iframe card.
 
-### Step 2 — Create a Wahoo developer app
+### 2 — Create a Wahoo developer app
 
 You need your own Wahoo OAuth credentials.
 
@@ -115,7 +149,7 @@ You need your own Wahoo OAuth credentials.
 > for the full curl + jq cookbook (OAuth flow, every read endpoint with
 > examples, rate-limit notes, useful jq recipes).
 
-### Step 3 — Add the integration to Home Assistant
+### 3 — Add the integration to Home Assistant
 
 [![Add HAWahooligan integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=hawahooligan)
 
@@ -199,7 +233,7 @@ picker. Entity IDs follow the slugified English friendly name (e.g.
 | `_rolling_tss_7d` / `_28d` | – | – |
 
 Rolling = "the last N days ending NOW", NOT "this calendar week".
-For calendar buckets see [Advanced: lifetime totals + utility_meter](#advanced-lifetime-totals--utility_meter).
+For calendar buckets see [Lifetime totals with utility_meter](#lifetime-totals-with-utility_meter).
 
 ### Streak (0.7.25+, `state_class=measurement`)
 
@@ -211,6 +245,45 @@ Consecutive calendar days (in HA's local timezone) with at least one
 workout. The current streak is valid if it ends **today or yesterday**
 — users opening the dashboard at 6am the morning after a 30-day streak
 still see 30, not 0. Older trailing runs report 0.
+
+### Workout picker
+
+`select.hawahooligan_workout_picker` — every workout the integration
+has ever seen, labelled `YYYY-MM-DD · name · duration · 🚴/🏠/📝`.
+Driven by both the regular poll (last 20) and the `full_backfill`
+service (everything else).
+
+### Attributes on `sensor.hawahooligan_last_workout`
+
+`workout_id`, `name`, `workout_type_id`, `workout_type`, `indoor`,
+`manual`, `edited`, `time_zone`, `fitness_app_id`, `starts`,
+`geojson_url`, **`route_id`**, **`plan_id`**, **`plan_ids`**,
+**`recent`** (rolling list of the last 20 rides for templating),
+**`selected_workout_id`** (set when you've pinned a specific ride via
+the picker or service).
+
+---
+
+## Services
+
+| Service | What it does |
+|---|---|
+| `hawahooligan.select_workout` | Pin the integration to a workout ID (or pass `"latest"` to release the pin). Sensors and map both follow. The picker calls this automatically. |
+| `hawahooligan.render_workout` | Render the GeoJSON for an arbitrary workout ID — useful for rides outside the auto-render path. |
+| `hawahooligan.full_backfill` | Paginate through your entire Wahoo history and feed the lifetime totals. Rate-limit aware: Sandbox-safe default of 8 calls / 5 min (≈ 96 / hour), bails after 3 consecutive 429s. Pass `with_tracks: true` to also render every historic outdoor track. Fires `hawahooligan_full_backfill_progress` events per page so you can wire a notification. |
+| `hawahooligan.cleanup_geojson` | Prune cached GeoJSON tracks in `<config>/www/hawahooligan/` older than `max_age_days` (default 180). Wire to a nightly automation to cap unbounded growth. |
+| `hawahooligan.refresh_power_zones` | Force an immediate refresh of the FTP / Critical Power / zone-threshold sensors instead of waiting for the regular 24-hour cycle. Useful after updating FTP in the Wahoo app or after a Reauth that just granted the `power_zones_read` scope. Fire-and-forget — runs in the background. |
+| `hawahooligan.set_power_zones` | Set or update your FTP, critical power, and the seven zone boundaries directly from HA (0.7.26+). Auto-derives `zone_1`..`zone_7` from FTP via Wahoo-style defaults (matching the Wahoo app's auto-derivation); pass any `zone_N` to override. POSTs on first call, PUTs on subsequent calls. Triggers an immediate sensor refresh. Requires the `power_zones_write` scope (added in 0.7.26 — existing users see a one-time reauth banner on upgrade). |
+
+> See [Set your FTP and power zones from HA](#set-your-ftp-and-power-zones-from-ha)
+> for a worked `set_power_zones` example and a dashboard slider.
+
+---
+
+## Events
+
+HAWahooligan fires events on the Home Assistant bus so you can trigger
+automations without polling sensors.
 
 ### Personal-record events (0.7.25+)
 
@@ -246,21 +319,11 @@ Backfill paths (the full-history backfill service, the recent-page
 catch-up at boot) deliberately stay silent — they populate the baseline
 without flooding the bus with stale records.
 
-### Workout picker
+### Backfill progress events
 
-`select.hawahooligan_workout_picker` — every workout the integration
-has ever seen, labelled `YYYY-MM-DD · name · duration · 🚴/🏠/📝`.
-Driven by both the regular poll (last 20) and the `full_backfill`
-service (everything else).
-
-### Attributes on `sensor.hawahooligan_last_workout`
-
-`workout_id`, `name`, `workout_type_id`, `workout_type`, `indoor`,
-`manual`, `edited`, `time_zone`, `fitness_app_id`, `starts`,
-`geojson_url`, **`route_id`**, **`plan_id`**, **`plan_ids`**,
-**`recent`** (rolling list of the last 20 rides for templating),
-**`selected_workout_id`** (set when you've pinned a specific ride via
-the picker or service).
+`hawahooligan.full_backfill` fires `hawahooligan_full_backfill_progress`
+per page, so you can surface a running notification during long
+history imports.
 
 ---
 
@@ -284,41 +347,6 @@ Lovelace iframe card (the example dashboard does this for you).
 > the `HAWahooligan-Viewer-Version: N` comment in the header — the
 > integration only auto-updates files that still carry the version
 > stamp.
-
----
-
-## Services
-
-| Service | What it does |
-|---|---|
-| `hawahooligan.select_workout` | Pin the integration to a workout ID (or pass `"latest"` to release the pin). Sensors and map both follow. The picker calls this automatically. |
-| `hawahooligan.render_workout` | Render the GeoJSON for an arbitrary workout ID — useful for rides outside the auto-render path. |
-| `hawahooligan.full_backfill` | Paginate through your entire Wahoo history and feed the lifetime totals. Rate-limit aware: Sandbox-safe default of 8 calls / 5 min (≈ 96 / hour), bails after 3 consecutive 429s. Pass `with_tracks: true` to also render every historic outdoor track. Fires `hawahooligan_full_backfill_progress` events per page so you can wire a notification. |
-| `hawahooligan.cleanup_geojson` | Prune cached GeoJSON tracks in `<config>/www/hawahooligan/` older than `max_age_days` (default 180). Wire to a nightly automation to cap unbounded growth. |
-| `hawahooligan.refresh_power_zones` | Force an immediate refresh of the FTP / Critical Power / zone-threshold sensors instead of waiting for the regular 24-hour cycle. Useful after updating FTP in the Wahoo app or after a Reauth that just granted the `power_zones_read` scope. Fire-and-forget — runs in the background. |
-| `hawahooligan.set_power_zones` | Set or update your FTP, critical power, and the seven zone boundaries directly from HA (0.7.26+). Auto-derives `zone_1`..`zone_7` from FTP via Wahoo-style defaults (matching the Wahoo app's auto-derivation); pass any `zone_N` to override. POSTs on first call, PUTs on subsequent calls. Triggers an immediate sensor refresh. Requires the `power_zones_write` scope (added in 0.7.26 — existing users see a one-time reauth banner on upgrade). |
-
-### Setting your FTP from HA (0.7.26+)
-
-```yaml
-action: hawahooligan.set_power_zones
-data:
-  ftp: 250
-```
-
-The seven zones derive from FTP via Wahoo's own factors (matching
-the app's auto-derivation). Override any zone, set
-`critical_power`, or pass `workout_type_id: 2` for indoor cycling
-when you need to.
-
-For an inline FTP slider on the dashboard, see
-[`dashboard/helpers.yaml`](https://github.com/mrebbert/hawahooligan/blob/main/dashboard/helpers.yaml)
-— one `input_number` + one script that wraps this service.
-
-> **Why this service exists:** Wahoo's `/v1/power_zones` is
-> **app-scoped** — records written via a different OAuth client
-> (e.g. Postman) are invisible to HA. The service writes through
-> HA's own session so the record is always visible.
 
 ---
 
@@ -351,55 +379,34 @@ and customisation tips (including why the iframe needs
 
 ---
 
-## Troubleshooting / FAQ
+## Set your FTP and power zones from HA
 
-<details>
-<summary><strong>"Reauthentication required" notification after upgrading</strong></summary>
+Write your FTP, critical power, and the seven zone boundaries straight
+to Wahoo from Home Assistant with `set_power_zones` (0.7.26+):
 
-A scope was added in a newer release. Click **Configure** and walk
-through OAuth — config entry, history, and lifetime totals survive.
+```yaml
+action: hawahooligan.set_power_zones
+data:
+  ftp: 250
+```
 
-</details>
+The seven zones derive from FTP via Wahoo's own factors (matching
+the app's auto-derivation). Override any zone, set
+`critical_power`, or pass `workout_type_id: 2` for indoor cycling
+when you need to.
 
-<details>
-<summary><strong>Map shows last week's ride, or a thin strip, or an old in-iframe dropdown</strong></summary>
+For an inline FTP slider on the dashboard, see
+[`dashboard/helpers.yaml`](https://github.com/mrebbert/hawahooligan/blob/main/dashboard/helpers.yaml)
+— one `input_number` + one script that wraps this service.
 
-Browser cache on the iframe. Hard-refresh: `Cmd+Shift+R` (macOS),
-`Ctrl+Shift+F5` (Windows / Linux). If it's a thin strip in a
-`sections` view, set `grid_options.rows: 9` (shipped YAML does).
-
-</details>
-
-<details>
-<summary><strong>HTTP 429 — Too Many Requests</strong></summary>
-
-Sandbox limits: 25 / 5 min, 100 / hour, 250 / day. Backfill bails
-after 3 consecutive 429s and resumes on next run. Daily quota
-exhausted → wait for 00:00 UTC reset or upgrade to Production at
-Wahoo.
-
-</details>
-
-<details>
-<summary><strong>Wahoo says "token revoked"</strong></summary>
-
-Wahoo expires unused refresh tokens after 60 days. Click
-**Configure** and re-authorize.
-
-</details>
-
-<details>
-<summary><strong>Sensor cards show "unavailable" — pre-0.7.8 German install</strong></summary>
-
-Old German installs registered e.g. `…_kritische_leistung` instead
-of `…_critical_power`. Rename at **Settings → Devices & Services →
-HAWahooligan → entity → ⚙ → Entity ID**.
-
-</details>
+> **Why this service exists:** Wahoo's `/v1/power_zones` is
+> **app-scoped** — records written via a different OAuth client
+> (e.g. Postman) are invisible to HA. The service writes through
+> HA's own session so the record is always visible.
 
 ---
 
-## Advanced: lifetime totals + utility_meter
+## Lifetime totals with utility_meter
 
 Each lifetime sensor carries `state_class=total_increasing`, so the
 Home Assistant recorder keeps long-term statistics automatically.
@@ -465,6 +472,73 @@ labels follow the user's HA locale automatically.
 
 ---
 
+## FAQ & troubleshooting
+
+<details>
+<summary><strong>Do I need a public URL, DNS, or TLS certificate?</strong></summary>
+
+No. OAuth is handled by Home Assistant through
+`my.home-assistant.io`, so the integration works on a purely local
+network install.
+
+</details>
+
+<details>
+<summary><strong>Why do I need my own Wahoo developer app?</strong></summary>
+
+The Wahoo Cloud API is OAuth-based and per-app scoped. Registering
+your own Confidential app (free, [step 2](#2--create-a-wahoo-developer-app))
+gives you a `client_id` / `client_secret` that HA uses to authorize
+against your own Wahoo account.
+
+</details>
+
+<details>
+<summary><strong>"Reauthentication required" notification after upgrading</strong></summary>
+
+A scope was added in a newer release. Click **Configure** and walk
+through OAuth — config entry, history, and lifetime totals survive.
+
+</details>
+
+<details>
+<summary><strong>Map shows last week's ride, or a thin strip, or an old in-iframe dropdown</strong></summary>
+
+Browser cache on the iframe. Hard-refresh: `Cmd+Shift+R` (macOS),
+`Ctrl+Shift+F5` (Windows / Linux). If it's a thin strip in a
+`sections` view, set `grid_options.rows: 9` (shipped YAML does).
+
+</details>
+
+<details>
+<summary><strong>HTTP 429 — Too Many Requests</strong></summary>
+
+Sandbox limits: 25 / 5 min, 100 / hour, 250 / day. Backfill bails
+after 3 consecutive 429s and resumes on next run. Daily quota
+exhausted → wait for 00:00 UTC reset or upgrade to Production at
+Wahoo.
+
+</details>
+
+<details>
+<summary><strong>Wahoo says "token revoked"</strong></summary>
+
+Wahoo expires unused refresh tokens after 60 days. Click
+**Configure** and re-authorize.
+
+</details>
+
+<details>
+<summary><strong>Sensor cards show "unavailable" — pre-0.7.8 German install</strong></summary>
+
+Old German installs registered e.g. `…_kritische_leistung` instead
+of `…_critical_power`. Rename at **Settings → Devices & Services →
+HAWahooligan → entity → ⚙ → Entity ID**.
+
+</details>
+
+---
+
 ## Development
 
 ```sh
@@ -478,6 +552,9 @@ Tier-1 covers the pure-Python helpers (`fit.py`, `totals.py`,
 `streak.py`, `records.py`, `zones.py`) via `importlib`, no HA
 dependency. Tier-2 (`tests/integration/`) loads a real HA stack via
 `pytest-homeassistant-custom-component`.
+
+See [`CONTRIBUTING.md`](https://github.com/mrebbert/hawahooligan/blob/main/CONTRIBUTING.md)
+for contribution guidelines.
 
 ---
 
